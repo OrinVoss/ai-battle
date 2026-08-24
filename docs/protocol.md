@@ -6,7 +6,7 @@
 
 ## 🔌 WebSocket
 
-连接地址：`ws://host:port/ws`（`main.py:62`）。
+连接地址：`ws://host:port/ws`（`main.py:63`）。
 
 连接建立后，服务端会依次发送：
 
@@ -25,7 +25,7 @@
 ```
 
 - 行为：若当前未分胜负，设置 `running=True` 并广播 `status`。
-- 边界：若 `winner is not None`，拒绝重复结算，返回 `status` 时 `running=False`（`main.py:77-83`）。
+- 边界：若 `winner is not None`，拒绝重复结算，返回 `status` 时 `running=False`（`main.py:78-83`）。
 
 ##### `pause`
 
@@ -43,7 +43,7 @@
 ```
 
 - 行为：推进一个完整回合，然后自动暂停。
-- 边界：已分胜负时无效（`main.py:87-93`）。
+- 边界：已分胜负时无效（`main.py:88-94`）。
 
 ##### `reset`
 
@@ -61,7 +61,7 @@
 ```
 
 - 行为：设置 `engine.speed = value`。
-- 范围：0.1~5.0；非法值会被忽略（`main.py:100-104`）。
+- 范围：0.1~5.0；非法值会被忽略（`main.py:101-105`）。
 
 #### 2. 开局设置 `setup` / `setup_save`
 
@@ -107,7 +107,7 @@
 ```
 
 - 行为：先原子写回 `config.json`，写成功后再执行与 `setup` 相同的应用逻辑。
-- 关键：写文件失败则整体不生效（`engine.py:319-351`）。
+- 关键：写文件失败则整体不生效（`engine.py:370-402`）。
 
 #### 3. 上帝传话 `god_msg`
 
@@ -144,7 +144,7 @@
 ```
 
 - 行为：等效于 `targets: "all"`、`sow: false`，调用 `god_say()`。
-- 与 `god_msg` 的区别：这是更简单的广播接口（`main.py:130-133`）。
+- 与 `god_msg` 的区别：这是更简单的广播接口（`main.py:131-134`）。
 
 ---
 
@@ -160,6 +160,9 @@
   "turn": 12,
   "running": true,
   "winner": null,
+  "max_turns": 300,
+  "game_over": null,
+  "match_review": null,
   "speed": 0.6,
   "demo": false,
   "day_night": "night",
@@ -229,6 +232,9 @@
 | `turn` | int | 当前总回合数 |
 | `running` | bool | 是否连续运行 |
 | `winner` | string\|null | 胜者名字；未结束为 `null` |
+| `max_turns` | int | 回合上限，0 表示无上限 |
+| `game_over` | object\|null | 终局结算信息；未结束为 `null` |
+| `match_review` | string\|null | AI 全局复盘文本；未生成/重置后为 `null` |
 | `speed` | float | 当前速度 |
 | `demo` | bool | 是否全局演示模式 |
 | `day_night` | string | `"day"` 或 `"night"` |
@@ -244,7 +250,7 @@
 | `grid` | list[list[str]] | 是 | 二维地形数组；`world_version` 未变时不带 |
 | `deposits` | dict[str,int] | 是 | 矿脉储量；`world_version` 未变时不带 |
 
-增量规则：前端若收到不带 `world.grid` 的 snapshot，应沿用上一次的 `grid` 和 `deposits`（`app.js:41-44`）。
+增量规则：前端若收到不带 `world.grid` 的 snapshot，应沿用上一次的 `grid` 和 `deposits`（`app.js:44-47`）。
 
 ##### `agents` 元素字段
 
@@ -282,10 +288,48 @@
 | `cache_rate` | float\|null | 缓存命中率；无数据时为 `null` |
 | `cache_est` | bool | 是否为本地估算 |
 
+##### `game_over` 子字段（结束时）
+
+```json
+{
+  "reason": "max_turns",
+  "rankings": [
+    {"name": "陈默", "alive": true, "kills": 2, "resources": 14, "relation_total": 3},
+    {"name": "白夜", "alive": true, "kills": 1, "resources": 7, "relation_total": -2}
+  ],
+  "titles": {
+    "生存冠军": "陈默",
+    "霸主": "陈默",
+    "富翁": "陈默",
+    "外交家": "白夜"
+  }
+}
+```
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `reason` | string | `"elimination"` 或 `"max_turns"` |
+| `rankings` | object[] | 排名数组，按 `存活 > 击杀 > 资源分` 排序 |
+| `rankings[].name` | string | 选手名 |
+| `rankings[].alive` | bool | 终局是否存活 |
+| `rankings[].kills` | int | 本局击杀数 |
+| `rankings[].resources` | int | 资源分 = 食物 + 矿石×2 +（有武器?10:0） |
+| `rankings[].relation_total` | int | 关系总分（tie-break 用） |
+| `titles` | object[str,string] | 称号 → 获得者 |
+
 #### 2. 日志 `log`
 
 ```json
-{ "type": "log", "turn": 12, "kind": "fight", "text": "⚔️ 陈默 攻击 白夜，造成 17 点伤害（白夜 剩余 HP 48）" }
+{
+  "type": "log",
+  "turn": 12,
+  "kind": "fight",
+  "text": "⚔️ 陈默 攻击 白夜，造成 17 点伤害（白夜 剩余 HP 48）",
+  "attacker": "陈默",
+  "victim": "白夜",
+  "damage": 17,
+  "remaining_hp": 48
+}
 ```
 
 字段说明：
@@ -295,7 +339,8 @@
 | `type` | string | 固定 `"log"` |
 | `turn` | int | 发生回合 |
 | `kind` | string | 日志类型，见下表 |
-| `text` | string | 日志文本 |
+| `text` | string | 渲染文本（前端、日志文件、导出文本行保持不变） |
+| *(结构化字段)* | varies | 根据 `kind` 附带，见下表；旧客户端可忽略 |
 
 `kind` 取值与前端过滤：
 
@@ -311,6 +356,51 @@
 | `sys` | 系统公告 | 系统 |
 | `god` | 上帝消息 | 系统 |
 | `event` | 世界事件 | 系统 |
+| `commentary` | AI 解说 | 系统 |
+| `review` | AI 全局复盘 | 系统 |
+
+##### 结构化字段表
+
+每条 `log` 在保留 `text` 的同时，按事件类型附带以下字段（供程序化统计/复盘）：
+
+| kind | 字段 | 类型 | 说明 |
+|------|------|------|------|
+| `move` | `actor` | string | 行动者 |
+| | `action` | string | `"move"` / `"rest"` / `"wait"` |
+| | `from` | [int,int] | 移动前坐标（`action="move"`） |
+| | `to` | [int,int] | 移动后坐标（`action="move"`） |
+| `item` | `actor` | string | 行动者 |
+| | `action` | string | `"gather"` / `"eat"` / `"loot"` / `"craft"` |
+| | `resource` | string | `food` / `ore` / `weapon` |
+| | `amount` | int | 数量 |
+| `fight` | `attacker` | string | 攻击者 |
+| | `victim` | string | 被攻击者 |
+| | `damage` | int | 实际伤害 |
+| | `remaining_hp` | int | 受害者剩余 HP |
+| | `night_bonus` | bool | 是否触发夜晚偷袭 +3 |
+| | `weapon_broke` | bool | 是否武器碎裂 |
+| `death` | `victim` | string | 死者 |
+| | `attacker` | string\|null | 他杀时凶手；饿死/兽群时为 null |
+| | `cause` | string | `"attack"` / `"starve"` / `"beast"` |
+| | `loot` | object | `{food, ore, weapon}`，`weapon` 为 0/1 |
+| | `pos` | [int,int] | 死亡坐标 |
+| `trade` | `from` | string | 发起方 |
+| | `to` | string | 接收方 |
+| | `offer_item` | string | 出价物品 `food` / `ore` |
+| | `offer_amount` | int | 出价数量 |
+| | `want_item` | string | 索要物品 `food` / `ore` |
+| | `want_amount` | int | 索要数量 |
+| | `result` | string | `"proposed"` / `"accepted"` / `"declined"` / `"given"` |
+| `think` | `actor` | string | 思考者 |
+| `god` | `targets` | string\|string[] | `"all"` 或收件人名单 |
+| | `sow` | bool | 是否为挑拨 |
+| `event` | `event` | string | `"rain"` / `"wolves"` / `"harvest"` |
+| | `victim` | string | 兽群受害者（仅 `wolves`） |
+| | `damage` | int | 兽群伤害（仅 `wolves`） |
+| `sys` | `actor` | string | 宣言者（结盟/敌对） |
+| | `winner` | string\|null | 游戏结束时胜者（仅结束公告） |
+| `death` | `winner` | string\|null | 游戏结束时胜者（`kind=death` 的结束公告） |
+| | `reason` | string | `"elimination"` / `"max_turns"`（结束公告） |
 
 #### 3. 状态 `status`
 
@@ -325,7 +415,20 @@
 
 触发时机：播放控制响应、胜负产生时。
 
-#### 4. 设置结果 `setup_result`
+#### 4. 全局复盘 `review`
+
+```json
+{ "type": "review", "text": "局势一波三折，甲最终凭借冷静收割摘冠。MVP 当属甲。" }
+```
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `type` | string | 固定 `"review"` |
+| `text` | string | AI 生成的全局复盘正文 |
+
+触发时机：游戏结束后非阻塞生成；同时会以 `kind=review` 进入日志流。
+
+#### 5. 设置结果 `setup_result`
 
 ```json
 { "type": "setup_result", "ok": true, "saved": true, "error": null }
@@ -374,7 +477,8 @@ Content-Type: application/json
     "turn": 47,
     "finished": true,
     "winner": "屠夫",
-    "demo": false
+    "demo": false,
+    "review": "局势一波三折，屠夫最终凭借冷静收割摘冠。MVP 当属屠夫。"
   },
   "agents": [
     {
@@ -403,11 +507,19 @@ Content-Type: application/json
     "[T1] [move] 🚶 陈默 移动到 (10,3)",
     "...",
     "===== 本局结束：胜者 屠夫，共 47 回合 ====="
+  ],
+  "events": [
+    { "turn": 0, "kind": "sys", "text": "🔄 世界已重置，新的生存游戏开始！" },
+    { "turn": 1, "kind": "move", "text": "🚶 陈默 移动到 (10,3)", "actor": "陈默", "action": "move", "from": [9,3], "to": [10,3] },
+    "..."
   ]
 }
 ```
 
-实现见 `engine.py:474-524`、`main.py:140-146`。
+- `logs` 保持人类可读的文本行不变，供前端和日志文件直接展示。
+- `events` 为每条日志追加结构化字段后的完整数组，供程序化消费；字段规则与 WebSocket `log` 消息一致。
+
+实现见 `engine.py:601-660`、`main.py:141-147`。
 
 ### GET /api/setup
 
@@ -445,12 +557,13 @@ GET /api/setup HTTP/1.1
     "hp_drain": 3,
     "damage_mult": 1.0,
     "event_prob": 0.08,
-    "gather_mult": 1.0
+    "gather_mult": 1.0,
+    "max_turns": 300
   }
 }
 ```
 
-实现见 `main.py:149-159`。
+实现见 `main.py:150-160`。
 
 ### GET /api/stats
 
@@ -472,7 +585,8 @@ GET /api/stats HTTP/1.1
     "games": 5,
     "wins": 1,
     "kills": 3,
-    "elo": 1012
+    "elo": 1012,
+    "titles": {"生存冠军": 1, "外交家": 2}
   },
   "屠夫|deepseek-v4-flash": {
     "name": "屠夫",
@@ -480,13 +594,14 @@ GET /api/stats HTTP/1.1
     "games": 5,
     "wins": 2,
     "kills": 7,
-    "elo": 1035
+    "elo": 1035,
+    "titles": {"生存冠军": 2, "霸主": 3, "富翁": 1}
   }
 }
 ```
 
 - 若 `stats.json` 不存在或读取失败，返回 `{}`。
-- 实现见 `main.py:162-171`。
+- 实现见 `main.py:164-173`。
 
 ### GET /api/replays
 
@@ -509,7 +624,7 @@ GET /api/replays HTTP/1.1
 
 - 只返回 `.jsonl` 文件。
 - 若 `replays/` 目录不存在，返回 `[]`。
-- 实现见 `main.py:174-189`。
+- 实现见 `main.py:176-191`。
 
 ### GET /api/replays/{name}
 
@@ -537,7 +652,7 @@ Content-Type: text/plain; charset=utf-8
 | 路径穿越（如 `../config.json`） | 404 | `{"detail":"回放不存在"}` |
 | 文件不存在 | 404 | `{"detail":"回放不存在"}` |
 
-校验逻辑见 `main.py:192-200`。
+校验逻辑见 `main.py:194-202`。
 
 ---
 
@@ -545,7 +660,7 @@ Content-Type: text/plain; charset=utf-8
 
 ### replays/*.jsonl
 
-每局录制一个 JSONL 文件，文件名 `match_YYYYMMDD_HHMMSS.jsonl`，同一秒重名时追加 `_2`、`_3`（`engine.py:78-83`）。
+每局录制一个 JSONL 文件，文件名 `match_YYYYMMDD_HHMMSS.jsonl`，同一秒重名时追加 `_2`、`_3`（`engine.py:93-98`）。
 
 首行 meta：
 
@@ -598,7 +713,8 @@ Content-Type: text/plain; charset=utf-8
     "games": 5,
     "wins": 1,
     "kills": 3,
-    "elo": 1012
+    "elo": 1012,
+    "titles": {"生存冠军": 1, "外交家": 2}
   },
   "白夜|Qwen/Qwen3.5-35B-A3B": {
     "name": "白夜",
@@ -606,7 +722,8 @@ Content-Type: text/plain; charset=utf-8
     "games": 5,
     "wins": 0,
     "kills": 2,
-    "elo": 988
+    "elo": 988,
+    "titles": {}
   }
 }
 ```
@@ -621,6 +738,7 @@ Content-Type: text/plain; charset=utf-8
 | `wins` | int | 胜利场次 |
 | `kills` | int | 累计击杀 |
 | `elo` | int | ELO 积分（初始 1000，K=24） |
+| `titles` | object[str,int] | 累计获得称号次数 |
 
 ---
 
@@ -630,4 +748,4 @@ Content-Type: text/plain; charset=utf-8
 2. 服务端发送 `status`。
 3. 服务端按顺序补发内存中最近最多 800 条 `log`。
 
-实现见 `main.py:64-70`。
+实现见 `main.py:65-71`。

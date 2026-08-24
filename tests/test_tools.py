@@ -53,6 +53,19 @@ def test_move_blocked_and_energy():
     fb, logs = tools.resolve_move(a, w, {"direction": "down"}, Ctx())
     assert a.pos == (1, 2) and a.energy == 99  # 正常移动扣 1 能量
     assert logs and logs[0][0] == "move"
+    data = logs[0][2]
+    assert data["actor"] == "甲" and data["action"] == "move"
+    assert data["from"] == [1, 1] and data["to"] == [1, 2]
+
+
+def test_rest_wait_log_has_actor_and_action():
+    w = flat_world()
+    a = make_agent(w, "甲", (1, 1))
+    w.agents = [a]
+    _, logs = tools.resolve_rest(a, w, {}, Ctx())
+    assert logs[0][2] == {"actor": "甲", "action": "rest"}
+    _, logs = tools.resolve_wait(a, w, {}, Ctx())
+    assert logs[0][2] == {"actor": "甲", "action": "wait"}
 
 
 # ---------- gather ----------
@@ -92,6 +105,40 @@ def test_eat_without_food():
     assert "没有食物" in fb and a.hp == hp0 and logs == []
 
 
+def test_eat_craft_log_has_structured_fields():
+    w, a, _ = pair()
+    a.items["food"] = 1
+    _, logs = tools.resolve_eat(a, w, {}, Ctx())
+    assert logs[0][2] == {"actor": "甲", "action": "eat", "resource": "food", "amount": 1}
+    a.items["ore"] = 3
+    _, logs = tools.resolve_craft(a, w, {}, Ctx())
+    assert logs[0][2] == {"actor": "甲", "action": "craft", "resource": "weapon", "amount": 1}
+
+
+def test_gather_log_has_structured_fields():
+    w = flat_world()
+    a = make_agent(w, "甲", (2, 2))
+    w.agents = [a]
+    w.grid[2][2] = "o"
+    w.deposits[(2, 2)] = 5
+    _, logs = tools.resolve_gather(a, w, {}, Ctx())
+    data = logs[0][2]
+    assert data["actor"] == "甲" and data["action"] == "gather"
+    assert data["resource"] == "ore" and data["amount"] == 1
+
+
+def test_loot_log_has_structured_fields():
+    w, a, b = pair()
+    b.alive = False
+    b.state = "死亡"
+    b.pos = a.pos
+    b.items = {"food": 2, "ore": 1}
+    _, logs = tools.resolve_loot(a, w, {"target": "乙"}, Ctx())
+    data = logs[0][2]
+    assert data["actor"] == "甲" and data["action"] == "loot"
+    assert data["amount"] == 2 and data.get("ore") == 1
+
+
 # ---------- attack / 武器耐久 ----------
 
 def test_attack_kill_drops_relations_kills():
@@ -101,8 +148,36 @@ def test_attack_kill_drops_relations_kills():
     assert not b.alive and b.state == "死亡"
     assert a.kills == 1                                    # 击杀数 +1
     assert a.relation["乙"] == -4 and b.relation["甲"] == -6  # 结仇
-    texts = [t for _, t in logs]
+    texts = [item[1] for item in logs]
     assert any("杀死" in t and "掉落" in t for t in texts)   # 致死掉落播报
+
+
+def test_attack_log_has_structured_fields(monkeypatch):
+    w, a, b = pair()
+    monkeypatch.setattr(tools.random, "randint", lambda lo, hi: 10)
+    fb, logs = tools.resolve_attack(a, w, {"target": "乙"}, Ctx())
+    fight = next(item for item in logs if item[0] == "fight" and "攻击" in item[1])
+    data = fight[2]
+    assert data["attacker"] == "甲"
+    assert data["victim"] == "乙"
+    assert data["damage"] == 10
+    assert data["remaining_hp"] == 90
+    assert data["night_bonus"] is False
+
+
+def test_death_log_has_structured_fields():
+    w, a, b = pair()
+    b.hp = 5
+    b.items = {"food": 2, "ore": 1}
+    b.weapon = True
+    _, logs = tools.resolve_attack(a, w, {"target": "乙"}, Ctx())
+    death = next(item for item in logs if item[0] == "death")
+    data = death[2]
+    assert data["victim"] == "乙"
+    assert data["attacker"] == "甲"
+    assert data["cause"] == "attack"
+    assert data["loot"] == {"food": 2, "ore": 1, "weapon": 1}
+    assert data["pos"] == [3, 2]
 
 
 def test_attack_weapon_durability_break():
@@ -112,7 +187,7 @@ def test_attack_weapon_durability_break():
     _, logs = tools.resolve_attack(a, w, {"target": "乙"}, Ctx())
     assert a.weapon is False and a.weapon_durability == 0
     assert b.hp <= 100 - 18  # 这一击仍吃到武器加成（8~14+10）
-    assert any("武器碎裂" in t for _, t in logs)
+    assert any("武器碎裂" in item[1] for item in logs)
     # 碎裂后再攻击：无武器伤害最多 14
     b.hp = 100
     a.energy = 100
@@ -128,7 +203,9 @@ def test_attack_night_bonus(monkeypatch):
     # 基础 10，无武器，夜晚 +3，倍率 1.0 → 13
     assert b.hp == 100 - 13
     assert "夜晚偷袭+3" in fb
-    assert any("夜晚偷袭+3" in t for _, t in logs)
+    assert any("夜晚偷袭+3" in item[1] for item in logs)
+    fight = next(item for item in logs if item[0] == "fight")
+    assert fight[2]["night_bonus"] is True
 
 
 def test_attack_day_no_bonus(monkeypatch):
@@ -183,7 +260,9 @@ def test_give_success_changes_relation():
     assert b.items == {"food": 2, "ore": 0}
     assert b.relation.get("甲", 0) == 2
     assert "送给 乙 2个food" in fb
-    assert any("🎁 甲 送给 乙 2个food" in t for _, t in logs)
+    assert any("🎁 甲 送给 乙 2个food" in item[1] for item in logs)
+    data = logs[0][2]
+    assert data == {"from": "甲", "to": "乙", "offer_item": "food", "offer_amount": 2, "result": "given"}
 
 
 def test_give_not_enough_items():
@@ -223,12 +302,18 @@ def test_trade_propose_accept_flow():
     assert "已提出交易" in fb or "提出" in fb
     tr = b.pending_trade
     assert tr and tr["from"] == "甲"
+    prop = logs[0][2]
+    assert prop == {"from": "甲", "to": "乙", "offer_item": "food", "offer_amount": 1,
+                    "want_item": "ore", "want_amount": 1, "result": "proposed"}
     fb, logs = tools.resolve_accept_trade(b, w, {"trade_id": tr["id"]}, Ctx())
     assert "完成" in fb
     assert a.items == {"food": 2, "ore": 1}
     assert b.items == {"food": 1, "ore": 1}
     assert a.relation["乙"] == 3 and b.relation["甲"] == 3
     assert b.pending_trade is None and w.pending_trades == []
+    acc = logs[0][2]
+    assert acc == {"from": "甲", "to": "乙", "offer_item": "food", "offer_amount": 1,
+                   "want_item": "ore", "want_amount": 1, "result": "accepted"}
 
 
 def test_trade_decline_flow():
@@ -243,6 +328,9 @@ def test_trade_decline_flow():
     assert "拒绝" in fb
     assert b.pending_trade is None and w.pending_trades == []
     assert a.items == {"food": 3, "ore": 0} and b.items == {"food": 0, "ore": 2}
+    dec = logs[0][2]
+    assert dec == {"from": "甲", "to": "乙", "offer_item": "food", "offer_amount": 1,
+                   "want_item": "ore", "want_amount": 1, "result": "declined"}
 
 
 def test_trade_overwrite_rejected():

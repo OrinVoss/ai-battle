@@ -244,6 +244,10 @@ body.row-resize iframe, body.row-resize canvas { pointer-events: none; }
   border-color: var(--gold); color: #f5d58a; font-style: italic;
   background: rgba(240, 180, 41, .13);
 }
+.l.review {
+  border-color: var(--gold); color: #ecd28a;
+  background: rgba(240, 180, 41, .08);
+}
 
 /* ---------------- 播报横幅 ---------------- */
 #banner {
@@ -263,6 +267,8 @@ body.row-resize iframe, body.row-resize canvas { pointer-events: none; }
 #banner .v-text { display: flex; flex-direction: column; gap: 2px; }
 #banner .v-title { font-size: 12px; letter-spacing: 4px; color: var(--gold); }
 #banner .v-name { font-size: 25px; font-weight: 800; color: #fff; }
+#banner .v-titles { font-size: 12px; color: var(--muted); margin-top: 3px; }
+#banner { cursor: pointer; }
 
 #killbanner {
   position: fixed; top: 128px; left: 50%; transform: translateX(-50%);
@@ -348,6 +354,46 @@ button .icon { vertical-align: -0.16em; }
 #lb-table td { font-family: Consolas, "Microsoft YaHei", monospace; }
 #lb-table tr:hover td { background: rgba(240, 180, 41, .05); }
 #rel-canvas { display: block; border-radius: var(--r-md); background: #0c1017; }
+
+/* ---------------- 终局结算面板 ---------------- */
+.settle-panel { width: 520px; }
+.settle-winner {
+  display: flex; align-items: center; gap: 10px;
+  font-size: 18px; color: var(--gold); margin-bottom: 10px;
+}
+.settle-winner .icon { color: var(--gold); }
+.settle-titles {
+  display: flex; flex-wrap: wrap; gap: 7px;
+  margin-bottom: 14px;
+}
+.st-tag {
+  font-size: 12px; color: var(--text);
+  background: var(--panel2); border: 1px solid var(--line2);
+  border-radius: 999px; padding: 3px 10px;
+}
+#settle-table { border-collapse: collapse; font-size: 13px; width: 100%; }
+#settle-table th, #settle-table td { padding: 6px 12px; text-align: left; border-bottom: 1px solid var(--line); }
+#settle-table th { color: var(--muted); font-weight: 400; font-size: 12px; }
+#settle-table td { font-family: Consolas, "Microsoft YaHei", monospace; }
+#settle-table tr:hover td { background: rgba(240, 180, 41, .05); }
+
+.settle-review {
+  margin-bottom: 14px;
+  padding: 12px 14px;
+  background: rgba(240, 180, 41, .08);
+  border: 1px solid rgba(240, 180, 41, .22);
+  border-radius: var(--r-md);
+  font-size: 13px;
+  line-height: 1.7;
+}
+.st-review-label {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 12px; font-weight: 700; color: var(--gold);
+  margin-bottom: 6px; letter-spacing: .5px;
+}
+.st-review-text { color: #ecd28a; white-space: pre-wrap; }
+.st-review-placeholder { color: var(--muted); font-style: italic; }
+
 .rp-item {
   display: flex; justify-content: space-between; gap: 18px; align-items: center;
   padding: 8px 10px; border-bottom: 1px solid var(--line);

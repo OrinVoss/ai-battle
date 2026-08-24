@@ -52,7 +52,7 @@
 
 ## 🧱 关键类与字段
 
-### `Engine`（`engine.py:56-699`）
+### `Engine`（`engine.py:65-1118`）
 
 `Engine` 是整个后端的控制中心，持有世界、选手、客户端、日志、回放等全部状态。
 
@@ -77,6 +77,8 @@
 | `config_path` | str | `config.json` 路径，测试可覆盖 |
 | `_stats_saved` | bool | 本局 ELO 是否已结算 |
 | `_last_world_version` | int | 上次推送给前端的世界版本 |
+| `max_turns` | int | 回合上限，0=无上限 |
+| `game_over` | dict\|None | 终局结算信息（reason/rankings/titles） |
 | `rain` | bool | 本回合是否暴雨 |
 | `harvest_until` | int | 丰收季持续到的回合数（含） |
 
@@ -133,7 +135,7 @@
 | `energy_drain` | float | 每回合能量消耗（仅提示词用） |
 | `hp_drain` | float | 能量归零后生命损耗（仅提示词用） |
 
-### `TurnCtx`（`engine.py:47-53`）
+### `TurnCtx`（`engine.py:56-63`）
 
 轻量级上下文对象，每个回合创建一个，用于统一日志：
 
@@ -153,14 +155,14 @@ class TurnCtx:
 
 ### 生命周期
 
-服务器启动时（`main.py:46-56`）：
+服务器启动时（`main.py:51-57`）：
 
 1. 读取 `config.json`。
 2. 创建 `Engine(config, hub)`。
 3. 在 FastAPI lifespan 中启动 `engine.loop()` 后台任务。
 4. 服务器关闭时取消该任务。
 
-`Engine.reset()` 初始化流程（`engine.py:136-180`）：
+`Engine.reset()` 初始化流程（`engine.py:153-203`）：
 
 1. `self.world = World(self.config)` 生成地图。
 2. `self.world.spawn_points(n)` 获取不重复出生点。
@@ -173,7 +175,7 @@ class TurnCtx:
 
 ### 一回合完整时序
 
-`run_turn()`（`engine.py:576-699`）的完整流程：
+`run_turn()`（`engine.py:944-1118`）的完整流程：
 
 #### 阶段 1：回合准备
 
@@ -223,7 +225,7 @@ async def decide(a):
 
 关键点：
 
-- 所有真实模型调用是并发的（`asyncio.gather`，`engine.py:642`）。
+- 所有真实模型调用是并发的（`asyncio.gather`，`engine.py:1010`）。
 - 失败重试 1 次，间隔 2 秒。
 - 仍失败则本回合由演示规则代打。
 
@@ -280,22 +282,27 @@ if len(alive_now) <= 1:
     self.update_stats()
 ```
 
-### 阶段 8：解说与反思（非阻塞）
+### 阶段 8：解说、反思与全局复盘（非阻塞）
 
-回合结算后、快照前，引擎会按配置触发两个可选的后台任务：
+#### 全局复盘
 
-1. **AI 解说员**：每 `commentary_interval` 回合（默认 5，0=关闭），从最近公开日志中挑选战斗/死亡/交易/结盟/上帝/事件类记录，调用一个独立 LLM 生成 1-2 句中文点评，以 `kind=commentary` 广播。演示模式自动关闭。
-2. **定期反思**：每 `reflect_interval` 回合（默认 10，0=关闭），为每个有真实模型的存活代理调用其自身模型，要求用一句话总结局势与打算；结果以 `[反思] ` 前缀写入 `notes`，并以 `think` 日志广播。演示模式跳过。
+游戏结束后，引擎会从最近约 100 条公开事件中挑选素材，调用解说员客户端生成一段中文全局复盘。成功后将文本写入 `match_review`，以独立 `review` 消息广播，并进入日志流；`reset()` 会取消未完成的任务并清空该字段。无可用 API Key 时自动使用模板化降级。
 
-两者都通过 `asyncio.create_task` 非阻塞执行，且最多只允许一个同类任务在跑；调用失败静默跳过，不影响主循环。
+回合结算后、快照前，引擎会按配置触发三个可选的后台任务：
 
-相关代码：`engine.py:575-710`。
+1. **AI 解说员**：每 `commentary_interval` 回合（默认 5，0=关闭），从最近公开日志中挑选战斗/死亡/交易/结盟/上帝/事件类记录，调用一个独立 LLM 生成 1-2 句中文点评，以 `kind=commentary` 广播。演示模式自动关闭（`engine.py:775-784`）。
+2. **定期反思**：每 `reflect_interval` 回合（默认 10，0=关闭），为每个有真实模型的存活代理调用其自身模型，要求用一句话总结局势与打算；结果以 `[反思] ` 前缀写入 `notes`，并以 `think` 日志广播。演示模式跳过（`engine.py:808-840`）。
+3. **AI 全局复盘**：游戏结束（歼灭或回合上限）后，挑选最近约 100 条公开事件，调用解说员客户端（或第一个可用 provider）生成约 200 字的中文复盘；无可用 Key 时使用模板化降级。结果写入 `match_review`，随 snapshot 携带，并以独立 `type=review` 消息广播，同时以 `kind=review` 进入日志流（`engine.py:846-866`）。
+
+三者都通过 `asyncio.create_task` 非阻塞执行，且最多只允许一个同类任务在跑；调用失败静默跳过，不影响主循环。`reset()` 会取消未完成的复盘任务并清空 `match_review`。
+
+相关代码：`engine.py:775-1118`。
 
 ### 广播流程
 
-- `emit()` 同时做三件事：追加到内存 `history`、写 `.log` 文件、通过 `Hub.send()` 广播（`engine.py:182-191`）。
-- `Hub.send()` 并行发送给所有连接，失败连接自动剔除（`main.py:27-43`）。
-- 每回合结束发送 `snapshot`（`engine.py:571`）。
+- `emit()` 同时做三件事：追加到内存 `history`、写 `.log` 文件、通过 `Hub.send()` 广播（`engine.py:212-226`）。
+- `Hub.send()` 并行发送给所有连接，失败连接自动剔除（`main.py:27-44`）。
+- 每回合结束发送 `snapshot`（`engine.py:939`）。
 
 ---
 
@@ -303,7 +310,7 @@ if len(alive_now) <= 1:
 
 ### system / user 结构
 
-每次模型调用由两条消息组成（`engine.py:600-603`）：
+每次模型调用由两条消息组成（`engine.py:968-971`）：
 
 - `system`：固定人设模板（`agent.py:104-116`）。
 - `user`：动态世界情报，按稳定性重排（`agent.py:118-181`）。
@@ -413,7 +420,7 @@ ch = round(len(common) / max(1, len(prompt_text)) * usage["prompt"])
 cm = max(0, usage["prompt"] - ch)
 ```
 
-（`engine.py:604-626`）
+（`engine.py:961-1008`）
 
 算法逻辑：
 
@@ -429,7 +436,7 @@ cm = max(0, usage["prompt"] - ch)
 - 不适用于 system 消息变化（如换选手人设）的情况。
 - 对短提示词误差更大。
 
-前端在 `cache_est=True` 时显示 `~缓存 XX%`（`engine.py:376`、`app.js:266`）。
+前端在 `cache_est=True` 时显示 `~缓存 XX%`（`engine.py:426`、`app.js:289`）。
 
 ---
 
@@ -467,7 +474,7 @@ cm = max(0, usage["prompt"] - ch)
 - `feedback`：写入该 agent 记忆的文本，前缀为 `[行动结果] ...`。
 - `logs`：每条日志是 `(kind, text)`，会被 `ctx.log(kind, text)` 广播。
 
-若执行过程抛异常，外层会捕获并生成 `(f"行动执行出错：{e}", [])`（`engine.py:664-665`）。
+若执行过程抛异常，外层会捕获并生成 `(f"行动执行出错：{e}", [])`（`engine.py:1016-1017`）。
 
 ### 日志 kind 一览表
 
@@ -484,7 +491,7 @@ cm = max(0, usage["prompt"] - ch)
 | `god` | 上帝消息 | 系统 | `god_msg` / `god` |
 | `event` | 世界事件 | 系统 | 暴雨 / 兽群 / 丰收季 |
 
-前端过滤映射（`app.js:312-319`）：
+前端过滤映射（`app.js:336-343`），其中 `review` 归入「系统」标签：
 
 ```js
 const KIND_FILTER = {
@@ -541,25 +548,27 @@ const KIND_FILTER = {
 - `consume()` 采矿时 +1（`world.py:89`）。
 - `regen()` 有变化时 +1（`world.py:110`）。
 
-引擎通过比较 `world.version != _last_world_version` 决定是否携带完整 `grid` 推送（`engine.py:378-383`）。
+引擎通过比较 `world.version != _last_world_version` 决定是否携带完整 `grid` 推送（`engine.py:429-432`）。
 
 ### 昼夜与事件
 
-- `world.night` 由 engine 每回合维护（`engine.py:583-585`）。
-- `world.harvest` 标志用于丰收季产出翻倍（`engine.py:587`、`tools.py:66`）。
-- 事件触发概率由难度参数 `event_prob` 控制（`engine.py:530`）。
+- `world.night` 由 engine 每回合维护（`engine.py:963-965`）。
+- `world.harvest` 标志用于丰收季产出翻倍（`engine.py:967`、`tools.py:66`）。
+- 事件触发概率由难度参数 `event_prob` 控制（`engine.py:663`）。
 
 ### 难度参数表
 
-`Engine.DIFFICULTY`（`engine.py:257-263`）：
+`Engine.DIFFICULTY`（`engine.py:294-302`）：
 
 | 键 | 默认 | 最小 | 最大 | 作用位置 |
 |----|------|------|------|----------|
-| `energy_drain` | 2 | 0 | 5 | 每回合被动扣能量（`engine.py:672`） |
-| `hp_drain` | 3 | 0 | 10 | 能量为 0 时扣血（`engine.py:679`） |
+| `energy_drain` | 2 | 0 | 5 | 每回合被动扣能量（`engine.py:1054`） |
+| `hp_drain` | 3 | 0 | 10 | 能量为 0 时扣血（`engine.py:1057`） |
 | `damage_mult` | 1.0 | 0.5 | 2.0 | 最终伤害乘数（`tools.py:115`） |
-| `event_prob` | 0.08 | 0 | 0.3 | 世界事件触发概率（`engine.py:530`） |
+| `event_prob` | 0.08 | 0 | 0.3 | 世界事件触发概率（`engine.py:663`） |
 | `gather_mult` | 1.0 | 0.5 | 2.0 | 草地/森林采集成功率乘数（`tools.py:67`） |
+
+`max_turns` 单独读取，默认 300、0=无上限（`engine.py:310`）。
 
 ---
 
@@ -567,11 +576,11 @@ const KIND_FILTER = {
 
 ### 结算时机
 
-一局结束时 `update_stats()` 被调用（`engine.py:696`），只执行一次（`engine.py:428-430`）。
+一局结束时 `update_stats()` 被调用（`engine.py:1113`），只执行一次（`engine.py:546-550`）。
 
 ### 键
 
-以 `名字|模型` 作为唯一键（`engine.py:440-441`）。
+以 `名字|模型` 作为唯一键（`engine.py:560-561`）。
 
 ### 字段
 
@@ -590,14 +599,37 @@ const KIND_FILTER = {
 
 ### 规则
 
-- 所有参赛者 `games + 1`，`kills` 累加本局击杀（`engine.py:443-449`）。
-- 若有唯一胜者，胜者对每个败者按标准 ELO 公式结算（`engine.py:460-462`）：
+- 所有参赛者 `games + 1`，`kills` 累加本局击杀（`engine.py:563-569`）。
+- 若有唯一胜者，胜者对每个败者按标准 ELO 公式结算（`engine.py:577-583`）：
   - `e = 1 / (1 + 10 ** ((ls["elo"] - ws["elo"]) / 400))`
   - 胜者：`elo += ELO_K * (1 - e)`
   - 败者：`elo -= ELO_K * (1 - e)`
 - `K = 24`，初始 `elo = 1000`（`engine.py:21-22`）。
-- 全员覆灭不算胜，不调 ELO（`engine.py:450` 因 `self.winner is None` 跳过）。
-- 写入为原子操作：先写 `.tmp` 再 `os.replace`（`engine.py:465-469`）。
+- 全员覆灭不算胜，不调 ELO（`engine.py:570` 因 `self.winner is None` 跳过）。
+- 称号从 `game_over.titles` 累计到每个选手的 `titles` 字段（`engine.py:583-589`）。
+- 写入为原子操作：先写 `.tmp` 再 `os.replace`（`engine.py:592-596`）。
+
+### 评分与称号
+
+上限终局时调用 `_compute_rankings()`（`engine.py:492-508`）排序：
+
+```python
+key = (alive, kills, resource_score, relation_total, -id)
+```
+
+- `resource_score = food + ore*2 + (weapon ? 10 : 0)`
+- 全部相同时用关系总分 tie-break，再相同按 `config` 出场顺序（id 小者优先）。
+
+称号由 `_compute_titles()`（`engine.py:510-543`）计算：
+
+| 称号 | 规则 |
+|------|------|
+| 生存冠军 | 评分/排序第一名 |
+| 霸主 | 击杀最多且 >0；并列按关系总分/出场顺序 |
+| 富翁 | 存活者中资源分最高，无存活则全体中取 |
+| 外交家 | 正关系总分最高且 >0 |
+
+`update_stats()` 把这些称号累计进 `stats.json` 每个选手的 `titles` 字段。
 
 ---
 
@@ -605,29 +637,32 @@ const KIND_FILTER = {
 
 ### 增量快照
 
-`snapshot()`（`engine.py:378-423`）返回字段：
+`snapshot()`（`engine.py:429-471`）返回字段：
 
 - `turn`, `running`, `winner`, `speed`, `demo`
+- `max_turns`: 回合上限
+- `game_over`: 终局结算信息（未结束为 `null`）
+- `match_review`: AI 全局复盘文本（未生成或重置后为 `null`）
 - `day_night`, `cycle_turn`
 - `world_version`
 - `world`: 始终含 `w`/`h`；仅当 `full=True` 或 `world.version` 变化时才含 `grid` 与 `deposits`
 - `providers`: 展示信息，不含 `api_key`
 - `agents`: 完整状态数组
 
-前端在 `applyMsg()` 中：若 snapshot 没带 `grid`，则沿用上一份缓存（`app.js:38-50`）。
+前端在 `applyMsg()` 中：若 snapshot 没带 `grid`，则沿用上一份缓存（`app.js:41-65`）；若收到 `type=review` 消息，则更新结算面板并写入日志流（`app.js:56-60`、`app.js:495-503`）。
 
 ### 回放录制
 
-`_open_recorder()`（`engine.py:70-103`）每局创建新的 JSONL 文件：
+`_open_recorder()`（`engine.py:87-120`）每局创建新的 JSONL 文件：
 
 - 首行 `type: meta`，含选手摘要。
 - 之后每行一条广播消息（`log`、`status`、`snapshot`）。
 
-`Hub.send()` 在广播时同步调用 `recorder` 回调落盘（`main.py:28-33`）。
+`Hub.send()` 在广播时同步调用 `recorder` 回调落盘（`main.py:29-34`）。
 
 ### 日志落盘
 
-`_open_logfile()` / `_write_log()`（`engine.py:106-133`）把每条 `emit` 的日志追加到 `logs/match_*.log`：
+`_open_logfile()` / `_write_log()`（`engine.py:123-150`）把每条 `emit` 的日志追加到 `logs/match_*.log`：
 
 ```
 [T0] [sys] 🔄 世界已重置...
@@ -638,10 +673,11 @@ const KIND_FILTER = {
 
 ### 一键导出
 
-`export_data()`（`engine.py:474-524`）返回 JSON：
+`export_data()`（`engine.py:601-657`）返回 JSON：
 
 - 优先使用 `logs/*.log` 文件中的完整日志；若内存 `history` 更长则用内存。
-- 包含 `meta`、`agents`、`logs`。
+- 包含 `meta`、`agents`、`logs`、`events`。
+- `meta.review` 携带本局 AI 复盘文本（未生成则为 `null`）。
 - 绝不包含 `api_key`。
 
 ---
@@ -653,8 +689,8 @@ const KIND_FILTER = {
 前端渲染分为三层：
 
 1. **DOM 层**：顶栏、卡片、日志、浮层面板。
-2. **离屏地形缓存层**：`terrainCv` canvas，按 `world_version` 重建。
-3. **rAF 动画层**：`drawFrame()` 在 `requestAnimationFrame` 循环中绘制。
+2. **离屏地形缓存层**：`terrainCv` canvas，按 `world_version` 重建（`app.js:90-93`）。
+3. **rAF 动画层**：`drawFrame()` 在 `requestAnimationFrame` 循环中绘制（`app.js:183-268`）。
 
 #### 离屏地形缓存
 
@@ -663,13 +699,13 @@ const terrainCv = document.createElement("canvas");
 let terrainVer = -1;
 ```
 
-- 当 `s.world_version !== terrainVer` 时，调用 `buildTerrain(s)` 重建缓存（`app.js:128`）。
+- 当 `s.world_version !== terrainVer` 时，调用 `buildTerrain(s)` 重建缓存（`app.js:135`）。
 - 重建内容包括：每个格子的底色、圆角、地形图标、矿脉储量数字。
-- 窗口 resize 或 DPR 变化时，`terrainVer` 置 -1 强制重建（`app.js:106`、`app.js:126`）。
+- 窗口 resize 或 DPR 变化时，`terrainVer` 置 -1 强制重建（`app.js:113`、`app.js:133`）。
 
 #### rAF 动画层
 
-`drawFrame()`（`app.js:176-245`）每帧执行：
+`drawFrame()`（`app.js:183-268`）每帧执行：
 
 1. 清空主 canvas。
 2. 绘制离屏地形（按逻辑尺寸 `logicalW × logicalH`）。
@@ -682,7 +718,7 @@ let terrainVer = -1;
 
 #### DPR 适配
 
-`setupDPR(cv, logicalW, logicalH)`（`app.js:95-104`）：
+`setupDPR(cv, logicalW, logicalH)`（`app.js:102-111`）：
 
 ```js
 const dpr = window.devicePixelRatio || 1;
@@ -696,7 +732,7 @@ ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
 - 内部像素 = 逻辑尺寸 × DPR，保证 HiDPI 清晰。
 - CSS 尺寸保持逻辑像素，后续绘制代码全按逻辑坐标调用。
-- `drawImage` 时必须指定逻辑目标尺寸，否则 dpr>1 时会放大 dpr 倍（`app.js:188`）。
+- `drawImage` 时必须指定逻辑目标尺寸，否则 dpr>1 时会放大 dpr 倍（`app.js:195`）。
 
 ### SVG 图标库
 
@@ -734,14 +770,14 @@ HTML 中 `<i class="ic" data-icon="play" data-size="14"></i>` 在水合时被替
 
 ### 增量快照缓存合并
 
-前端收到 snapshot 时（`app.js:38-50`）：
+前端收到 snapshot 时（`app.js:41-65`）：
 
 1. 若 `m.world` 存在但没有 `grid`，从 `state.snapshot.world` 复用 `grid` 和 `deposits`。
 2. 更新 `state.snapshot`。
 3. 同步 `state.running` 与胜者横幅。
 4. 触发 `render()`：重建地形缓存（若 version 变）、更新选手卡片、同步状态。
 
-回放模式下通过从头顺序 apply 到目标索引，保证增量缓存正确（`app.js:775-780`）。
+回放模式下通过从头顺序 apply 到目标索引，保证增量缓存正确（`app.js:936-941`）。
 
 ---
 
@@ -791,10 +827,18 @@ a.relation[t.name] = max(a.relation.get(t.name, 0), 3)
 
 ### 为什么 `history` 限制 800 条？
 
-内存 `history` 限制 800 条（`engine.py:185-186`），新连接时只补发最近 800 条。原因：
+内存 `history` 限制 800 条（`engine.py:216-217`），新连接时只补发最近 800 条。原因：
 
 - 避免内存无限增长。
-- 完整日志已实时写入 `.log` 文件，导出时会优先以文件为准补全（`engine.py:480-488`）。
+- 完整日志已实时写入 `.log` 文件，导出时会优先以文件为准补全（`engine.py:607-617`）。
+
+### 为什么上限结局用「关系总分」做并列 tie-break？
+
+上限终局的排序主键是 `存活 > 击杀 > 资源分`。若多人在这三项上完全相同，则比较关系总分，再相同按出场顺序。
+
+- 保留「必须有一个唯一胜者」的语义，避免多人并列第 1 时 ELO 结算复杂化。
+- 关系总分是对选手外交影响力的量化，作为 tie-break 符合沙盒主题。
+- 出场顺序是确定性的最后防线。
 
 ### 为什么 `world_version` 用整数而不是哈希？
 

@@ -72,7 +72,7 @@ def test_export_structure_and_no_api_key():
     })
     eng.emit("sys", "一条日志")
     data = eng.export_data()
-    assert set(data) == {"meta", "agents", "logs"}
+    assert set(data) == {"meta", "agents", "logs", "events"}
     assert data["meta"]["turn"] == 0 and "exported_at" in data["meta"]
     a = data["agents"][0]
     for k in ("name", "model", "role", "backstory", "traits", "hp", "items", "kills", "relations"):
@@ -93,3 +93,35 @@ def test_export_prefers_log_file_when_longer(tmp_path):
     data = eng.export_data()
     assert len(data["logs"]) == base + 5  # 以 log 文件为准，导出完整一局
     assert data["logs"][-1] == "[T0] [sys] 第4条"
+
+
+def test_think_log_has_actor():
+    eng = make_engine()
+    eng.reset()
+    eng.emit("think", "💭 甲 想：测试想法", data={"actor": "甲"})
+    entry = eng.history[-1]
+    assert entry["actor"] == "甲"
+
+
+def test_export_events_array_includes_structured_data():
+    eng = make_engine()
+    eng.reset()
+    eng.emit("fight", "⚔️ 甲 攻击 乙", data={"attacker": "甲", "victim": "乙", "damage": 10, "remaining_hp": 90})
+    data = eng.export_data()
+    assert "events" in data
+    evt = data["events"][-1]
+    assert evt["kind"] == "fight"
+    assert evt["attacker"] == "甲"
+    assert evt["victim"] == "乙"
+    assert evt["damage"] == 10
+
+
+def test_god_message_log_has_targets_and_sow():
+    eng = make_engine()
+    eng.reset()
+    err = eng.god_message(["甲", "乙"], "挑拨测试", sow=True)
+    assert err is None
+    entry = eng.history[-1]
+    assert entry["kind"] == "god"
+    assert set(entry["targets"]) == {"甲", "乙"}
+    assert entry["sow"] is True

@@ -53,6 +53,10 @@ function applyMsg(m) {
     render();
   }
   else if (m.type === "log") { addLog(m); }
+  else if (m.type === "review") {
+    onReview(m.text);
+    addLog({ kind: "review", text: m.text, turn: m.turn || (state.snapshot ? state.snapshot.turn : 0) });
+  }
   else if (m.type === "status") {
     state.running = !!m.running;
     if (m.running) hideBanner();
@@ -305,7 +309,8 @@ function renderAgents() {
     box.appendChild(d);
   }
   $("alive").textContent = `存活 ${s.agents.filter(x => x.alive).length}/${s.agents.length}`;
-  $("turn").textContent = `回合 ${s.turn}`;
+  const mt = s.max_turns || 0;
+  $("turn").textContent = mt > 0 ? `回合 ${s.turn}/${mt}` : `回合 ${s.turn}`;
   const night = s.day_night === "night";
   $("daynight").innerHTML = `${icon(night ? "moon" : "sun", 12)} ${night ? "夜晚" : "白天"}` +
     (s.cycle_turn ? ` ${esc(s.cycle_turn)}/24` : "");
@@ -334,13 +339,14 @@ const KIND_FILTER = {
   think: ["think"],
   fight: ["fight", "death"],
   trade: ["trade"],
-  sys: ["sys", "move", "item", "god", "event", "commentary"],
+  sys: ["sys", "move", "item", "god", "event", "commentary", "review"],
 };
 
 /* 日志 kind -> 行首 SVG 小图标 */
 const KIND_ICONS = {
   talk: "chat", think: "thought", fight: "swords", death: "skull", trade: "trade",
   sys: "gear", move: "move", item: "box", god: "eye", event: "spark", commentary: "broadcast",
+  review: "broadcast",
 };
 
 /* 后端日志字符串行首内嵌的 UI emoji（💀💭⚔️…）在前端渲染时剥掉，换成 kind 图标；
@@ -436,14 +442,73 @@ function showBanner(text, icName = "warning") {
 }
 function hideBanner() { $("banner").classList.add("hidden"); }
 
-/* 胜利横幅：胜者头像图标 + 名字 */
+/* 胜利/结算横幅：胜者 + 称号；点击打开结算面板 */
 function showVictory(name) {
-  const a = state.snapshot && state.snapshot.agents.find(x => x.name === name);
+  const s = state.snapshot;
+  const a = s && s.agents.find(x => x.name === name);
   const icn = a ? avatarIconName(a.emoji) : "trophy";
+  const titles = (s && s.game_over && s.game_over.titles) || {};
+  const titleEm = { "生存冠军": "🏆", "霸主": "⚔️", "富翁": "💰", "外交家": "🤝" };
+  const titleParts = Object.entries(titles).map(([t, n]) => `${titleEm[t] || ""}${esc(t)} ${esc(n)}`);
   $("banner").innerHTML = `<span class="v-emoji">${icon(icn, 44)}</span>
-    <span class="v-text"><span class="v-title">${icon("trophy", 12)} WINNER</span><span class="v-name">${esc(name)}</span></span>`;
+    <span class="v-text"><span class="v-title">${icon("trophy", 12)} WINNER</span><span class="v-name">${esc(name)}</span>${titleParts.length ? `<span class="v-titles">${titleParts.join(" · ")}</span>` : ""}</span>`;
   $("banner").classList.remove("hidden");
+  renderSettlement();
+  // 自动弹出结算面板（延迟让用户先看到横幅）
+  if (!$("settle-panel").classList.contains("hidden")) return;
+  setTimeout(() => {
+    if (state.snapshot && state.snapshot.winner && !state.running) {
+      $("settle-panel").classList.remove("hidden");
+    }
+  }, 900);
 }
+
+function renderSettlement() {
+  const s = state.snapshot;
+  if (!s || !s.game_over) return;
+  const go = s.game_over;
+  const w = go.titles && go.titles["生存冠军"];
+  const a = s.agents.find(x => x.name === w);
+  const icn = a ? avatarIconName(a.emoji) : "trophy";
+  $("settle-winner").innerHTML = `${icon(icn, 32)} <b>${esc(w || "—")}</b> ${go.reason === "max_turns" ? "（回合上限评分结算）" : "（最后幸存者）"}`;
+  const titleEls = Object.entries(go.titles || {}).map(([t, n]) => {
+    const em = { "生存冠军": "🏆", "霸主": "⚔️", "富翁": "💰", "外交家": "🤝" }[t] || "";
+    return `<span class="st-tag">${em} ${esc(t)}：${esc(n)}</span>`;
+  }).join("");
+  $("settle-titles").innerHTML = titleEls || "<span class=\"st-tag\">—</span>";
+  const rows = go.rankings || [];
+  let html = "<tr><th>名次</th><th>选手</th><th>存活</th><th>击杀</th><th>资源</th><th>关系</th></tr>";
+  if (!rows.length) {
+    html += `<tr><td colspan="6" style="color:#8b98a5">暂无数据</td></tr>`;
+  } else {
+    rows.forEach((r, i) => {
+      html += `<tr><td>${i + 1}</td><td>${esc(r.name)}</td><td>${r.alive ? "是" : "否"}</td><td>${r.kills}</td><td>${r.resources}</td><td>${r.relation_total}</td></tr>`;
+    });
+  }
+  $("settle-table").innerHTML = html;
+  const review = s.match_review;
+  $("settle-review").innerHTML = review
+    ? `<div class="st-review-label">${icon("broadcast", 12)} AI 复盘</div><div class="st-review-text">${esc(review)}</div>`
+    : `<div class="st-review-placeholder">AI 复盘中…</div>`;
+}
+
+function onReview(text) {
+  if (!text) return;
+  const box = $("settle-review");
+  if (!box) return;
+  box.innerHTML = `<div class="st-review-label">${icon("broadcast", 12)} AI 复盘</div><div class="st-review-text">${esc(text)}</div>`;
+  // 如果复盘在游戏结束后才到达，且结算面板未打开，自动弹出
+  if (state.snapshot && state.snapshot.game_over && !state.running && $("settle-panel").classList.contains("hidden")) {
+    $("settle-panel").classList.remove("hidden");
+  }
+}
+
+$("banner").onclick = () => {
+  if (state.snapshot && state.snapshot.game_over) {
+    renderSettlement();
+    $("settle-panel").classList.remove("hidden");
+  }
+};
 
 /* 击杀/死亡顶部全屏播报（2 秒淡出） */
 let killTimer = null;
@@ -464,6 +529,7 @@ $("btn-reset").onclick = () => {
   state.lines = [];
   $("log").innerHTML = "";
   hideBanner();
+  $("settle-panel").classList.add("hidden");
 };
 $("speed").oninput = e => {
   $("speed-val").textContent = e.target.value + "x";
@@ -733,10 +799,12 @@ $("btn-lb").onclick = async () => {
   let data = {};
   try { data = await (await fetch("/api/stats")).json(); } catch (e) {}
   const rows = Object.values(data).sort((x, y) => y.elo - x.elo);
-  let html = "<tr><th>选手</th><th>模型</th><th>场次</th><th>胜</th><th>杀</th><th>ELO</th></tr>";
-  if (!rows.length) html += `<tr><td colspan="6" style="color:#8b98a5">还没有打过完整的一局</td></tr>`;
+  let html = "<tr><th>选手</th><th>模型</th><th>场次</th><th>胜</th><th>杀</th><th>ELO</th><th>称号</th></tr>";
+  if (!rows.length) html += `<tr><td colspan="7" style="color:#8b98a5">还没有打过完整的一局</td></tr>`;
   for (const r of rows) {
-    html += `<tr><td>${esc(r.name)}</td><td>${esc(r.model)}</td><td>${r.games}</td><td>${r.wins}</td><td>${r.kills}</td><td>${r.elo}</td></tr>`;
+    const tmap = r.titles || {};
+    const tstr = Object.entries(tmap).map(([k, v]) => `${esc(k)}${v > 1 ? "×" + v : ""}`).join(" ") || "—";
+    html += `<tr><td>${esc(r.name)}</td><td>${esc(r.model)}</td><td>${r.games}</td><td>${r.wins}</td><td>${r.kills}</td><td>${r.elo}</td><td>${tstr}</td></tr>`;
   }
   $("lb-table").innerHTML = html;
 };

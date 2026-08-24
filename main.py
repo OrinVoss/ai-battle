@@ -155,7 +155,8 @@ def api_setup():
             k: {"name": v.get("name", k), "models": list(v.get("models", []))}
             for k, v in CONFIG.get("providers", {}).items()
         },
-        "world": {k: engine.difficulty(k) for k in Engine.DIFFICULTY},
+        "world": {k: engine.difficulty(k) for k in Engine.DIFFICULTY}
+        | {"max_turns": engine.max_turns},
     }
 
 

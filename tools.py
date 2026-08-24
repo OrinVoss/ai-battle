@@ -58,7 +58,11 @@ def resolve_move(a, w, args, ctx):
         return "前方是障碍，过不去", []
     a.pos = (nx, ny)
     a.energy = max(0, a.energy - 1)
-    return f"移动到 ({nx},{ny})", [("move", f"🚶 {a.name} 移动到 ({nx},{ny})")]
+    return f"移动到 ({nx},{ny})", [(
+        "move",
+        f"🚶 {a.name} 移动到 ({nx},{ny})",
+        {"actor": a.name, "action": "move", "from": [x, y], "to": [nx, ny]},
+    )]
 
 
 def resolve_gather(a, w, args, ctx):
@@ -70,29 +74,33 @@ def resolve_gather(a, w, args, ctx):
         w.grid[y][x] = "."  # 地形是矿脉但已无储量记录：修正为平地
         return "矿脉已枯竭", []
     if t == "f":
-        a.items["food"] += (1 + random.choice([0, 1])) * mult
+        amount = (1 + random.choice([0, 1])) * mult
+        a.items["food"] += amount
         w.consume(x, y)
-        return "采集到食物", [("item", f"🌾 {a.name} 在食物矿脉采集到食物")]
+        return "采集到食物", [("item", f"🌾 {a.name} 在食物矿脉采集到食物", {"actor": a.name, "action": "gather", "resource": "food", "amount": amount})]
     if t == "o":
-        a.items["ore"] += 1 * mult
+        amount = 1 * mult
+        a.items["ore"] += amount
         w.consume(x, y)
-        return "采集到矿石", [("item", f"⛏️ {a.name} 在矿石矿脉采到矿石")]
+        return "采集到矿石", [("item", f"⛏️ {a.name} 在矿石矿脉采到矿石", {"actor": a.name, "action": "gather", "resource": "ore", "amount": amount})]
     if t == "F":
         if random.random() < 0.5 * rate:
-            a.items["food"] += 1 * mult
-            return "在森林里找到野果", [("item", f"🌰 {a.name} 在森林里找到野果")]
+            amount = 1 * mult
+            a.items["food"] += amount
+            return "在森林里找到野果", [("item", f"🌰 {a.name} 在森林里找到野果", {"actor": a.name, "action": "gather", "resource": "food", "amount": amount})]
         return "森林里什么也没找到", []
     if t == ".":
         if random.random() < 0.3 * rate:
-            a.items["food"] += 1 * mult
-            return "在草丛里捡到食物", [("item", f"🍞 {a.name} 捡到食物")]
+            amount = 1 * mult
+            a.items["food"] += amount
+            return "在草丛里捡到食物", [("item", f"🍞 {a.name} 捡到食物", {"actor": a.name, "action": "gather", "resource": "food", "amount": amount})]
         return "一无所获", []
     return "这里没有可采集的东西", []
 
 
 def resolve_rest(a, w, args, ctx):
     a.energy = min(100, a.energy + 20)
-    return "休息了一会儿，能量恢复", [("move", f"😴 {a.name} 原地休息")]
+    return "休息了一会儿，能量恢复", [("move", f"😴 {a.name} 原地休息", {"actor": a.name, "action": "rest"})]
 
 
 def resolve_eat(a, w, args, ctx):
@@ -100,7 +108,7 @@ def resolve_eat(a, w, args, ctx):
         return "没有食物可吃", []
     a.items["food"] -= 1
     a.hp = min(100, a.hp + 12)
-    return "吃掉一份食物，生命恢复", [("item", f"🍽️ {a.name} 吃了一份食物")]
+    return "吃掉一份食物，生命恢复", [("item", f"🍽️ {a.name} 吃了一份食物", {"actor": a.name, "action": "eat", "resource": "food", "amount": 1})]
 
 
 def resolve_attack(a, w, args, ctx):
@@ -122,18 +130,33 @@ def resolve_attack(a, w, args, ctx):
     t.relation[a.name] = t.relation.get(a.name, 0) - 6
     t.last_attacker = a.name
     night_note = "（夜晚偷袭+3）" if night else ""
-    logs = [("fight", f"⚔️ {a.name} 攻击 {t.name}，造成 {dmg} 点伤害{night_note}（{t.name} 剩余 HP {max(0, t.hp)}）")]
+    remaining_hp = max(0, t.hp)
+    logs = [(
+        "fight",
+        f"⚔️ {a.name} 攻击 {t.name}，造成 {dmg} 点伤害{night_note}（{t.name} 剩余 HP {remaining_hp}）",
+        {"attacker": a.name, "victim": t.name, "damage": dmg, "remaining_hp": remaining_hp, "night_bonus": night},
+    )]
     if a.weapon:
         a.weapon_durability -= 1
         if a.weapon_durability <= 0:
             a.weapon = False
             a.weapon_durability = 0
-            logs.append(("fight", f"💥 {a.name} 的武器碎裂了！"))
+            logs.append(("fight", f"💥 {a.name} 的武器碎裂了！", {"actor": a.name, "weapon_broke": True}))
     if t.hp <= 0:
         t.alive = False
         t.state = "死亡"
         a.kills += 1
-        logs.append(("death", f"💀 {t.name} 被 {a.name} 杀死！掉落了 {t.items}"))
+        logs.append((
+            "death",
+            f"💀 {t.name} 被 {a.name} 杀死！掉落了 {t.items}",
+            {
+                "victim": t.name,
+                "attacker": a.name,
+                "cause": "attack",
+                "loot": {"food": t.items["food"], "ore": t.items["ore"], "weapon": 1 if t.weapon else 0},
+                "pos": list(t.pos),
+            },
+        ))
         # 附近的存活者目睹死亡，知道尸体位置（搜刮的前提）
         for o in w.agents:
             if o.alive and o is not a and w.dist(o.pos, t.pos) <= 6:
@@ -206,6 +229,7 @@ def resolve_loot(a, w, args, ctx):
     a.items["ore"] += got["ore"]
     t.items = {"food": 0, "ore": 0}
     extra = ""
+    weapon_got = 0
     if t.weapon and not a.weapon:
         # 缴获死者的武器（含剩余耐久）；自己已有武器则死者武器随尸体消失
         a.weapon = True
@@ -213,7 +237,13 @@ def resolve_loot(a, w, args, ctx):
         t.weapon = False
         t.weapon_durability = 0
         extra = f"，并缴获了武器（耐久{a.weapon_durability}）"
-    return f"搜刮到 {got}{extra}", [("item", f"🪦 {a.name} 搜刮了 {t.name} 的尸体，得到 {got}{extra}")]
+        weapon_got = 1
+    data = {"actor": a.name, "action": "loot", "resource": "food", "amount": got["food"]}
+    if got["ore"]:
+        data["ore"] = got["ore"]
+    if weapon_got:
+        data["weapon"] = weapon_got
+    return f"搜刮到 {got}{extra}", [("item", f"🪦 {a.name} 搜刮了 {t.name} 的尸体，得到 {got}{extra}", data)]
 
 
 def resolve_craft(a, w, args, ctx):
@@ -224,7 +254,7 @@ def resolve_craft(a, w, args, ctx):
     a.items["ore"] -= 3
     a.weapon = True
     a.weapon_durability = 6
-    return "打造了一把武器（攻击+10，耐久6）", [("item", f"🔨 {a.name} 用3块矿石打造了武器！")]
+    return "打造了一把武器（攻击+10，耐久6）", [("item", f"🔨 {a.name} 用3块矿石打造了武器！", {"actor": a.name, "action": "craft", "resource": "weapon", "amount": 1})]
 
 
 def resolve_give(a, w, args, ctx):
@@ -249,7 +279,9 @@ def resolve_give(a, w, args, ctx):
     t.relation[a.name] = t.relation.get(a.name, 0) + 2
     return (
         f"你送给 {t.name} {amount}个{item}，{t.name} 对你领情了",
-        [("trade", f"🎁 {a.name} 送给 {t.name} {amount}个{item}")],
+        [("trade", f"🎁 {a.name} 送给 {t.name} {amount}个{item}", {
+            "from": a.name, "to": t.name, "offer_item": item, "offer_amount": amount, "result": "given"
+        })],
     )
 
 
@@ -278,7 +310,10 @@ def resolve_propose_trade(a, w, args, ctx):
     tr = {"id": tid, "from": a.name, "to": t.name, "offer": offer, "on": on, "want": want, "wn": wn}
     w.pending_trades.append(tr)
     t.pending_trade = tr
-    return f"已向 {t.name} 提出交易", [("trade", f"🤝 {a.name} 向 {t.name} 提出交易：{on}个{offer} 换 {wn}个{want}")]
+    return f"已向 {t.name} 提出交易", [("trade", f"🤝 {a.name} 向 {t.name} 提出交易：{on}个{offer} 换 {wn}个{want}", {
+        "from": a.name, "to": t.name, "offer_item": offer, "offer_amount": on,
+        "want_item": want, "want_amount": wn, "result": "proposed"
+    })]
 
 
 def resolve_accept_trade(a, w, args, ctx):
@@ -311,7 +346,10 @@ def resolve_accept_trade(a, w, args, ctx):
         w.pending_trades.remove(tr)
     a.relation[offerer.name] = a.relation.get(offerer.name, 0) + 3
     offerer.relation[a.name] = offerer.relation.get(a.name, 0) + 3
-    return "交易完成", [("trade", f"✅ 交易达成：{a.name} 用 {tr['wn']}个{tr['want']} 换到 {tr['on']}个{tr['offer']}")]
+    return "交易完成", [("trade", f"✅ 交易达成：{a.name} 用 {tr['wn']}个{tr['want']} 换到 {tr['on']}个{tr['offer']}", {
+        "from": offerer.name, "to": a.name, "offer_item": tr["offer"], "offer_amount": tr["on"],
+        "want_item": tr["want"], "want_amount": tr["wn"], "result": "accepted"
+    })]
 
 
 def resolve_decline_trade(a, w, args, ctx):
@@ -321,7 +359,10 @@ def resolve_decline_trade(a, w, args, ctx):
     a.pending_trade = None
     if tr in w.pending_trades:
         w.pending_trades.remove(tr)
-    return "你拒绝了交易", [("trade", f"❌ {a.name} 拒绝了 {tr['from']} 的交易")]
+    return "你拒绝了交易", [("trade", f"❌ {a.name} 拒绝了 {tr['from']} 的交易", {
+        "from": tr["from"], "to": a.name, "offer_item": tr["offer"], "offer_amount": tr["on"],
+        "want_item": tr["want"], "want_amount": tr["wn"], "result": "declined"
+    })]
 
 
 def resolve_remember(a, w, args, ctx):
@@ -351,7 +392,7 @@ def resolve_mark_enemy(a, w, args, ctx):
 
 
 def resolve_wait(a, w, args, ctx):
-    return "原地待命，观察四周", [("move", f"👀 {a.name} 原地待命")]
+    return "原地待命，观察四周", [("move", f"👀 {a.name} 原地待命", {"actor": a.name, "action": "wait"})]
 
 
 RESOLVE = {

@@ -31,14 +31,15 @@
 | `width` | int | 否 | 20 | ≥2 | 地图宽度（格子数）（`world.py:11`） |
 | `height` | int | 否 | 16 | ≥2 | 地图高度（格子数）（`world.py:12`） |
 | `seed` | int / null | 否 | null | 任意整数或 null | 随机种子；为 null 时每次生成不同地图（`world.py:14`） |
-| `turns_per_second` | float | 否 | 0.6 | >0 | 默认运行速度（`engine.py:60`） |
-| `energy_drain` | float | 否 | 2 | 0~5 | 每回合能量消耗（`engine.py:258`） |
-| `hp_drain` | float | 否 | 3 | 0~10 | 能量归零后每回合生命损耗（`engine.py:259`） |
-| `damage_mult` | float | 否 | 1.0 | 0.5~2.0 | 攻击伤害倍率（`engine.py:260`） |
-| `event_prob` | float | 否 | 0.08 | 0~0.3 | 世界事件触发概率（`engine.py:261`） |
-| `gather_mult` | float | 否 | 1.0 | 0.5~2.0 | 采集成功率倍率（`engine.py:262`） |
-| `commentary_interval` | int | 否 | 5 | 0 或 ≥1 | 每 N 回合触发一次 AI 解说（0=关闭）（`engine.py`） |
-| `reflect_interval` | int | 否 | 10 | 0 或 ≥1 | 每 M 回合触发一次代理反思（0=关闭）（`engine.py`） |
+| `turns_per_second` | float | 否 | 0.6 | >0 | 默认运行速度（`engine.py:69`） |
+| `energy_drain` | float | 否 | 2 | 0~5 | 每回合能量消耗（`engine.py:295`） |
+| `hp_drain` | float | 否 | 3 | 0~10 | 能量归零后每回合生命损耗（`engine.py:296`） |
+| `damage_mult` | float | 否 | 1.0 | 0.5~2.0 | 攻击伤害倍率（`engine.py:297`） |
+| `event_prob` | float | 否 | 0.08 | 0~0.3 | 世界事件触发概率（`engine.py:298`） |
+| `gather_mult` | float | 否 | 1.0 | 0.5~2.0 | 采集成功率倍率（`engine.py:299`） |
+| `commentary_interval` | int | 否 | 5 | 0 或 ≥1 | 每 N 回合触发一次 AI 解说（0=关闭）（`engine.py:763`） |
+| `reflect_interval` | int | 否 | 10 | 0 或 ≥1 | 每 M 回合触发一次代理反思（0=关闭）（`engine.py:878`） |
+| `max_turns` | int | 否 | 300 | 0 或 ≥1 | 回合上限，达到后强制评分结算（0=无上限）（`engine.py:310`） |
 
 ### 字段详解
 
@@ -57,7 +58,7 @@
 #### `turns_per_second`
 
 - 控制连续运行时每回合之间的间隔。
-- 实际间隔 = `1.0 / speed` 秒（`engine.py:573`）。
+- 实际间隔 = `1.0 / speed` 秒（`engine.py:939`）。
 - 运行时可通过前端速度滑块实时修改。
 
 #### `energy_drain`
@@ -108,7 +109,14 @@
 | `event_prob` | 世界更动荡，随机性更强 |
 | `gather_mult` | 资源更充裕，囤积型选手更强 |
 
-难度参数在 `world.py:24-32` 和 `engine.py:265-271` 中均被钳位到合法范围，手写越界值不会崩溃。
+难度参数在 `world.py:24-32` 和 `engine.py:294-302` 中均被钳位到合法范围，手写越界值不会崩溃。
+
+#### `max_turns`
+
+- 控制单局最多回合数。默认 `300`，设为 `0` 表示无上限。
+- 达到上限且场上仍有 2 人及以上存活时，强制进入「评分结算」：按 `存活 > 击杀 > 资源分` 排序，第一名获胜。
+- 该值只影响内存中的当前配置；前端「保存到文件」不会把它写回 `config.json`。
+- 详情见 [usage.md#结局规则](usage.md#结局规则) 与 [technical.md#评分与称号](technical.md#评分与称号)。
 
 ---
 
@@ -136,14 +144,15 @@
 | `api_key` | string | 否 | 直接写 key；为空时尝试读 `env_key` 环境变量（`llm.py:17-27`） |
 | `env_key` | string | 否 | 环境变量名（`llm.py:21-22`） |
 | `thinking` | string | 否 | `"enabled"` / `"disabled"`，控制 DeepSeek 思考模式（`llm.py:79-80`） |
-| `price_input` | float | 否 | 每百万 prompt token 单价（元），用于费用估算（`engine.py:360`） |
-| `price_output` | float | 否 | 每百万 completion token 单价（元）（`engine.py:360`） |
+| `price_input` | float | 否 | 每百万 prompt token 单价（元），用于费用估算（`engine.py:411`） |
+| `price_output` | float | 否 | 每百万 completion token 单价（元）（`engine.py:411`） |
 | `models` | string[] | 否 | 该 provider 提供的模型列表，供前端下拉框使用（`main.py:155`） |
 
 ### 解说员专属配置 `commentator`
 
 可在 `config.json` 顶层增加可选的 `commentator` 节，指定解说员使用的 provider 与模型；
 不配置时，引擎会自动挑选第一个有可用 API Key 的 provider 的第一个模型。
+该客户端同时用于每 `commentary_interval` 回合的局势解说，以及**游戏结束后的全局 AI 复盘**；无可用 Key 时复盘自动降级为模板文本。
 
 ```json
 "commentator": {
@@ -185,7 +194,7 @@
 #### `price_input` / `price_output`
 
 - 单位：元 / 百万 token。
-- 用于前端费用显示：`cost = (prompt × price_input + completion × price_output) / 1_000_000`（`engine.py:363`）。
+- 用于前端费用显示：`cost = (prompt × price_input + completion × price_output) / 1_000_000`（`engine.py:414`）。
 - 未配时显示「费用未知」。
 
 #### `models`
@@ -242,7 +251,7 @@ set EXAMPLE_API_KEY=sk-your-key-here
 
 ## 🤖 agents 节
 
-`agents` 是选手数组，至少 2 人（`engine.py:242-243`）。每个选手对象：
+`agents` 是选手数组，至少 2 人（`engine.py:277-291`）。每个选手对象：
 
 ```json
 {
@@ -265,22 +274,22 @@ set EXAMPLE_API_KEY=sk-your-key-here
 
 | 字段 | 类型 | 必填 | 默认值 | 限制 | 说明 |
 |------|------|------|--------|------|------|
-| `name` | string | 是 | — | 2~20 字符 | 选手名字，唯一标识（`engine.py:289`） |
-| `emoji` | string | 否 | 🤖 | 最长 4 字符 | 头像映射键（`engine.py:290`） |
-| `role` | string | 否 | 幸存者 | 最长 20 字符 | 角色名（`engine.py:291`） |
-| `provider` | string | 是 | — | — | 引用 `providers` 中的键（`engine.py:292`） |
-| `model` | string | 是 | — | — | 该 provider 下的模型名（`engine.py:293`） |
+| `name` | string | 是 | — | 2~20 字符 | 选手名字，唯一标识（`engine.py:328`） |
+| `emoji` | string | 否 | 🤖 | 最长 4 字符 | 头像映射键（`engine.py:329`） |
+| `role` | string | 否 | 幸存者 | 最长 20 字符 | 角色名（`engine.py:330`） |
+| `provider` | string | 是 | — | — | 引用 `providers` 中的键（`engine.py:331`） |
+| `model` | string | 是 | — | — | 该 provider 下的模型名（`engine.py:332`） |
 | `backstory` | string | 否 | 空 | 最长 500 字符 | 人物背景（`agent.py:14`、`agent.py:106`） |
 | `personality` | string | 否 | 空 | 最长 500 字符 | 性格描述（`agent.py:15`、`agent.py:107`） |
 | `strategy` | string | 否 | 空 | 最长 500 字符 | 处世策略（`agent.py:26`、`agent.py:108`） |
-| `traits` | object | 否 | 全部 0.5 | 0~1 | 四项特质（`agent.py:17-25`） |
+| `traits` | object | 否 | 全部 0.5 | 0~1 | 四项特质（`agent.py:17-25`、`agent.py:109`） |
 
 ### 字段详解
 
 #### `name`
 
 - 唯一标识一名选手。
-- 不能与其他选手重名，否则 `apply_setup` 拒绝（`engine.py:251-253`）。
+- 不能与其他选手重名，否则 `apply_setup` 拒绝（`engine.py:282-284`）。
 - 会出现在日志、关系图、排行榜（键为 `name|model`）。
 
 #### `emoji`
@@ -379,12 +388,12 @@ config.json
 
 ### 设置保存行为
 
-前端「保存到文件」只替换 `agents` 和 `world` 下的难度键，其余内容（包括 `providers` 里的 `api_key`）原样保留（`engine.py:335-343`）。
+前端「保存到文件」只替换 `agents` 和 `world` 下的难度键，其余内容（包括 `providers` 里的 `api_key`）原样保留（`engine.py:370-402`）。
 
 ### 导出安全
 
-`export_data()` 会导出选手终态与日志，但绝不包含 `api_key`（`engine.py:474-524`）。
+`export_data()` 会导出选手终态与日志，但绝不包含 `api_key`（`engine.py:601-660`）。
 
 ### HTTP API 不暴露 Key
 
-`/api/setup` 返回的 `providers` 只包含 `name` 和 `models`，不含 `api_key`（`main.py:152-158`）。
+`/api/setup` 返回的 `providers` 只包含 `name` 和 `models`，不含 `api_key`（`main.py:153-159`）。

@@ -21,6 +21,14 @@ CYCLE_LEN = 24   # 后 8 回合夜晚
 ELO_K = 24
 ELO_INIT = 1000
 
+# 终局称号（任何结局都结算）
+TITLE_EMOJIS = {
+    "生存冠军": "🏆",
+    "霸主": "⚔️",
+    "富翁": "💰",
+    "外交家": "🤝",
+}
+
 # 模型没写 reason 时的兜底想法
 CANNED_THINKING = {
     "move": "先移动探路，摸清地形",
@@ -50,8 +58,8 @@ class TurnCtx:
         self.engine = engine
         self.turn = turn
 
-    def log(self, kind, text):
-        self.engine.emit(kind, text)
+    def log(self, kind, text, data=None):
+        self.engine.emit(kind, text, data=data)
 
 
 class Engine:
@@ -65,12 +73,14 @@ class Engine:
         self.log_path = None
         self.log_dir = LOG_DIR  # 比赛日志目录（测试可改指临时目录）
         self.config_path = os.path.join(BASE, "config.json")  # 保存 setup 时写回这里（测试可改指临时文件）
-        # 解说员 / 反思的非阻塞任务句柄
+        # 解说员 / 反思 / 全局复盘的非阻塞任务句柄
         self._commentary_task = None
         self._reflection_task = None
+        self._review_task = None
         self._commentary_client = None
         self._commentary_model = None
         self._commentary_provider_name = None
+        self.match_review = None
         self.reset()
 
     # ---------- 复盘录制 ----------
@@ -156,6 +166,12 @@ class Engine:
         self.harvest_until = 0       # 丰收季持续到此回合（含）
         self._stats_saved = False
         self._last_world_version = -1  # 上次推给前端的世界版本（增量推送用）
+        self.max_turns = self._max_turns()  # 回合上限，0=无上限
+        self.game_over = None               # 终局结算信息（reason/rankings/titles）
+        self.match_review = None            # AI 全局复盘文本
+        if self._review_task is not None and not self._review_task.done():
+            self._review_task.cancel()
+        self._review_task = None
         self._open_logfile()
         self._open_recorder()
 
@@ -193,8 +209,10 @@ class Engine:
             if o.alive and self.world.dist(o.pos, dead.pos) <= 6:
                 o.add_event(self.turn, f"[目睹] {dead.name} 在 {dead.pos} {how}")
 
-    def emit(self, kind, text):
+    def emit(self, kind, text, data=None):
         entry = {"turn": self.turn, "kind": kind, "text": text}
+        if data:
+            entry.update(data)
         self.history.append(entry)
         if len(self.history) > 800:
             self.history.pop(0)
@@ -204,8 +222,8 @@ class Engine:
         except RuntimeError:
             pass
 
-    def god_say(self, text):
-        self.emit("god", f"👁 上帝广播：{text}")
+    def god_say(self, text, targets="all", sow=False):
+        self.emit("god", f"👁 上帝广播：{text}", data={"targets": targets, "sow": sow})
         for a in self.agents:
             if a.alive:
                 a.add_event(self.turn, f"[上帝广播] {text}")
@@ -223,7 +241,7 @@ class Engine:
         do_sow = False
         if targets == "all":
             recips = alive
-            self.god_say(text)  # 全体：记忆写 [上帝广播]，日志公开内容
+            self.god_say(text, targets="all", sow=bool(sow))  # 全体：记忆写 [上帝广播]，日志公开内容
             do_sow = bool(sow) and len(recips) >= 2
         else:
             if not isinstance(targets, list) or not targets:
@@ -238,15 +256,20 @@ class Engine:
                 for a in recips:
                     a.add_event(self.turn, f"[上帝对你们低语] {text}")
             do_sow = bool(sow) and len(recips) >= 2
+            target_names = [a.name for a in recips]
             if not do_sow:  # 挑拨时公开日志不发内容（见下）
-                self.emit("god", f"👁 上帝 悄悄对 {'、'.join(a.name for a in recips)} 说：{text}")
+                self.emit(
+                    "god",
+                    f"👁 上帝 悄悄对 {'、'.join(target_names)} 说：{text}",
+                    data={"targets": target_names, "sow": False},
+                )
         if do_sow:
             for a in recips:
                 for b in recips:
                     if a is not b:
                         a.relation[b.name] = a.relation.get(b.name, 0) - 5
                 a.add_event(self.turn, f"[传闻] {text}")
-            self.emit("god", "👁 上帝在他们之间散布了猜忌…")
+            self.emit("god", "👁 上帝在他们之间散布了猜忌…", data={"targets": [a.name for a in recips], "sow": True})
         return None
 
     # ---------- 开局设置 ----------
@@ -283,6 +306,14 @@ class Engine:
         except (TypeError, ValueError):
             return dft
         return max(lo, min(hi, v))
+
+    def _max_turns(self):
+        """回合上限：默认 300，0 表示无上限。"""
+        try:
+            v = int(self.config["world"].get("max_turns", 300))
+        except (TypeError, ValueError):
+            v = 300
+        return max(0, v)
 
     def can_play(self):
         """游戏已分出胜负后拒绝 start/step，防止重复结算。"""
@@ -327,6 +358,12 @@ class Engine:
                         self.config["world"][k] = float(world_diff[k])
                     except (TypeError, ValueError):
                         pass
+            # 回合上限只进内存，不写 config.json
+            if "max_turns" in world_diff:
+                try:
+                    self.config["world"]["max_turns"] = max(0, int(world_diff["max_turns"]))
+                except (TypeError, ValueError):
+                    pass
         self.reset()
         return None
 
@@ -399,6 +436,9 @@ class Engine:
             "turn": self.turn,
             "running": self.running,
             "winner": self.winner,
+            "max_turns": self.max_turns,
+            "game_over": self.game_over,
+            "match_review": self.match_review,
             "speed": self.speed,
             "demo": self.demo_mode,
             "day_night": "night" if self.world.night else "day",
@@ -436,9 +476,75 @@ class Engine:
             ],
         }
 
+    # ---------- 评分与称号 ----------
+    def _resource_score(self, a):
+        """资源分：食物 + 矿石×2 + 有武器+10。"""
+        return a.items["food"] + a.items["ore"] * 2 + (10 if a.weapon else 0)
+
+    def _relation_total(self, a):
+        """关系总分（用于并列 tie-break）。"""
+        return sum(a.relation.values())
+
+    def _positive_relation_sum(self, a):
+        """正关系总分（仅正值之和）。"""
+        return sum(v for v in a.relation.values() if v > 0)
+
+    def _compute_rankings(self):
+        """上限终局评分排序：存活 > 击杀 > 资源分 > 关系总分 > 出场顺序。"""
+        order = sorted(
+            self.agents,
+            key=lambda a: (a.alive, a.kills, self._resource_score(a), self._relation_total(a), -a.id),
+            reverse=True,
+        )
+        return [
+            {
+                "name": a.name,
+                "alive": a.alive,
+                "kills": a.kills,
+                "resources": self._resource_score(a),
+                "relation_total": self._relation_total(a),
+            }
+            for a in order
+        ]
+
+    def _compute_titles(self, rankings=None):
+        """计算本局称号。任何结局都结算。"""
+        rankings = rankings or self._compute_rankings()
+        titles = {}
+        if not rankings:
+            return titles
+
+        # 生存冠军：第一名（排序时已用关系总分+出场顺序去重）
+        titles["生存冠军"] = rankings[0]["name"]
+
+        # 霸主：击杀最多，且击杀 >0；并列按关系总分、出场顺序取前者
+        max_kills = max(a.kills for a in self.agents)
+        if max_kills > 0:
+            conqueror = max(
+                (a for a in self.agents if a.kills == max_kills),
+                key=lambda a: (self._relation_total(a), -a.id),
+            )
+            titles["霸主"] = conqueror.name
+
+        # 富翁：存活者中资源最多；无存活则全体中取；并列按出场顺序
+        alive = [a for a in self.agents if a.alive]
+        pool = alive if alive else self.agents
+        richest = max(pool, key=lambda a: (self._resource_score(a), -a.id))
+        titles["富翁"] = richest.name
+
+        # 外交家：正关系总分最高，且 >0；并列按出场顺序
+        diplomat = max(
+            self.agents,
+            key=lambda a: (self._positive_relation_sum(a), -a.id),
+        )
+        if self._positive_relation_sum(diplomat) > 0:
+            titles["外交家"] = diplomat.name
+
+        return titles
+
     # ---------- 战绩（ELO） ----------
     def update_stats(self):
-        """一局结束时把结果结算进 stats.json（原子写入）。全灭平局不算胜、不调 ELO。"""
+        """一局结束时把结果结算进 stats.json（原子写入）。全灭平局不算胜、不调 ELO；累计称号。"""
         if self._stats_saved:
             return
         self._stats_saved = True
@@ -457,7 +563,7 @@ class Engine:
         for a in self.agents:
             s = data.setdefault(
                 key(a),
-                {"name": a.name, "model": a.model, "games": 0, "wins": 0, "kills": 0, "elo": ELO_INIT},
+                {"name": a.name, "model": a.model, "games": 0, "wins": 0, "kills": 0, "elo": ELO_INIT, "titles": {}},
             )
             s["games"] += 1
             s["kills"] += a.kills
@@ -474,6 +580,13 @@ class Engine:
                     e = 1 / (1 + 10 ** ((ls["elo"] - ws["elo"]) / 400))
                     ws["elo"] += ELO_K * (1 - e)
                     ls["elo"] -= ELO_K * (1 - e)
+        # 称号累计
+        titles = (self.game_over or {}).get("titles", {})
+        for title, name in titles.items():
+            holder = next((a for a in self.agents if a.name == name), None)
+            if holder:
+                s = data[key(holder)]
+                s.setdefault("titles", {})[title] = s.get("titles", {}).get(title, 0) + 1
         for s in data.values():
             s["elo"] = round(s["elo"])
         try:
@@ -503,6 +616,13 @@ class Engine:
         except Exception:
             pass
         alive_any = any(a.alive for a in self.agents)
+        events = []
+        for h in self.history:
+            e = {"turn": h["turn"], "kind": h["kind"], "text": h["text"]}
+            extra = {k: v for k, v in h.items() if k not in ("turn", "kind", "text")}
+            if extra:
+                e.update(extra)
+            events.append(e)
         return {
             "meta": {
                 "exported_at": datetime.now().isoformat(timespec="seconds"),
@@ -510,6 +630,7 @@ class Engine:
                 "finished": self.winner is not None or (self.turn > 0 and not alive_any),
                 "winner": self.winner,
                 "demo": self.demo_mode,
+                "review": self.match_review,
             },
             "agents": [
                 {
@@ -535,6 +656,7 @@ class Engine:
                 for a in self.agents
             ],
             "logs": logs,
+            "events": events,
         }
 
     # ---------- 随机世界事件 ----------
@@ -545,6 +667,7 @@ class Engine:
             return
         ev = random.choice(["rain", "wolves", "harvest"])
         msg = None
+        event_data = {"event": ev}
         if ev == "rain":
             self.rain = True
             msg = "🌧 世界事件：暴雨倾盆！本回合所有幸存者能量额外 -3。"
@@ -554,18 +677,29 @@ class Engine:
                 v = random.choice(victims)
                 dmg = random.randint(5, 10)
                 v.hp -= dmg
+                event_data["victim"] = v.name
+                event_data["damage"] = dmg
                 msg = f"🐺 世界事件：兽群来袭！{v.name} 被野兽撕咬，生命 -{dmg}。"
                 if v.hp <= 0:
                     v.alive = False
                     v.state = "死亡"
                     msg += f" {v.name} 伤重不治！"
-                    ctx.log("death", f"💀 {v.name} 被兽群撕碎！掉落 {v.items}")
+                    ctx.log(
+                        "death",
+                        f"💀 {v.name} 被兽群撕碎！掉落 {v.items}",
+                        data={
+                            "victim": v.name,
+                            "cause": "beast",
+                            "loot": {"food": v.items["food"], "ore": v.items["ore"], "weapon": 1 if v.weapon else 0},
+                            "pos": list(v.pos),
+                        },
+                    )
                     self._witness_death(v, "被兽群撕碎")
         else:
             self.harvest_until = self.turn + 2  # 含本回合共 3 回合
             msg = "🌾 世界事件：丰收季！接下来 3 回合采集产出翻倍。"
         if msg:
-            self.emit("event", msg)
+            self.emit("event", msg, data=event_data)
             for a in self.agents:
                 if a.alive:
                     a.add_event(self.turn, f"[世界事件] {msg}")
@@ -655,6 +789,82 @@ class Engine:
                 self.emit("commentary", f"📣 解说：{text}")
         except Exception:
             # 解说失败静默跳过，不影响主循环
+            pass
+
+    # ---------- 全局复盘 ----------
+    def _review_events(self):
+        """挑选约 100 条公开事件作为复盘输入（排除内心想法、解说、复盘本身）。"""
+        exclude = {"think", "commentary", "review"}
+        selected = [e for e in self.history if e["kind"] not in exclude]
+        selected = selected[-100:]
+        return [f"[T{e['turn']}] [{e['kind']}] {e['text']}" for e in selected]
+
+    def _match_review_prompt(self):
+        """构造复盘 LLM 的 system / user prompt。"""
+        events = "\n".join(self._review_events()) or "（暂无大事）"
+        system = (
+            "你是一名专业的电竞复盘师。请根据下面的全局公开事件，用中文为本局比赛写一段"
+            "约 200 字的 AI 复盘。输出结构：①一句话总结 ②局势回顾 2-3 句 ③转折点"
+            "④MVP 点评 ⑤名场面/趣事一句。不要剧透上帝私聊的具体内容，只基于公开事件点评。"
+        )
+        ending = (
+            f"结局：{self.game_over['reason']}，"
+            f"胜者 {self.winner or '无'}，"
+            f"共 {self.turn} 回合。"
+        )
+        user = f"本局关键事件：\n{events}\n\n{ending}\n\n请按上述结构输出复盘。"
+        return system, user
+
+    def _demo_match_review(self):
+        """演示模式模板化复盘。"""
+        go = self.game_over or {}
+        titles = go.get("titles", {})
+        rankings = go.get("rankings", [])
+        top = rankings[0] if rankings else {}
+        reason_text = (
+            "最后幸存者诞生"
+            if go.get("reason") == "elimination"
+            else f"回合上限 {self.max_turns} 到达，评分结算"
+        )
+        parts = [
+            f"本局{reason_text}，冠军由 {self.winner or '—'} 摘得。",
+            f"冠军 {top.get('name', '—')} 存活{'是' if top.get('alive') else '否'}，"
+            f"击杀 {top.get('kills', 0)}，资源分 {top.get('resources', 0)}。",
+        ]
+        title_parts = [
+            f"{TITLE_EMOJIS.get(t, '')} {t} {n}"
+            for t, n in titles.items()
+        ]
+        if title_parts:
+            parts.append("称号：" + "，".join(title_parts) + "。")
+        deaths = [e for e in self.history if e["kind"] == "death"]
+        if deaths:
+            parts.append(f"终局前战报：{deaths[-1]['text']}。")
+        parts.append("（演示模式自动生成）")
+        return "\n".join(parts)
+
+    async def _generate_match_review(self):
+        """非阻塞生成全局复盘；失败静默，不影响主循环。"""
+        try:
+            if self._commentary_client is not None and self._commentary_model:
+                system, user = self._match_review_prompt()
+                text, _usage = await llm_chat(
+                    self._commentary_client,
+                    self._commentary_model,
+                    [
+                        {"role": "system", "content": system},
+                        {"role": "user", "content": user},
+                    ],
+                    temperature=0.8,
+                    max_tokens=400,
+                )
+            else:
+                text = self._demo_match_review()
+            if text:
+                self.match_review = text.strip()
+                self.emit("review", f"📝 AI 复盘：{self.match_review}")
+                await self.hub.send("review", {"text": self.match_review})
+        except Exception:
             pass
 
     # ---------- 定期反思 ----------
@@ -816,15 +1026,18 @@ class Engine:
                 action = "wait"
             thinking = (thinking or "").strip() or CANNED_THINKING.get(action, "权衡之后决定行动")
             a.last_thought = thinking[:120]
-            ctx.log("think", f"💭 {a.name} 想：{thinking[:140]}")
+            ctx.log("think", f"💭 {a.name} 想：{thinking[:140]}", data={"actor": a.name})
             try:
                 feedback, logs = tools.RESOLVE[action](a, self.world, args, ctx)
             except Exception as e:
                 feedback, logs = f"行动执行出错：{e}", []
             if feedback:
                 a.add_event(self.turn, f"[行动结果] {feedback}")
-            for kind, text in logs:
-                ctx.log(kind, text)
+            for item in logs:
+                if isinstance(item, (list, tuple)) and len(item) >= 3:
+                    ctx.log(item[0], item[1], data=item[2])
+                else:
+                    ctx.log(item[0], item[1])
 
         # 被动消耗（暴雨时能量额外 -3；消耗量可在设置里调难度）
         drain = self.difficulty("energy_drain") + (3 if self.rain else 0)
@@ -840,22 +1053,65 @@ class Engine:
             if a.hp <= 0 and a.alive:
                 a.alive = False
                 a.state = "死亡"
-                ctx.log("death", f"💀 {a.name} 耗尽了生命，倒下了！掉落 {a.items}")
+                ctx.log(
+                    "death",
+                    f"💀 {a.name} 耗尽了生命，倒下了！掉落 {a.items}",
+                    data={
+                        "victim": a.name,
+                        "cause": "starve",
+                        "loot": {"food": a.items["food"], "ore": a.items["ore"], "weapon": 1 if a.weapon else 0},
+                        "pos": list(a.pos),
+                    },
+                )
                 self._witness_death(a, "耗尽了生命")
 
         # 结束判定
         alive_now = [a for a in self.agents if a.alive]
+        ended = False
+        reason = None
+        rankings = None
         if len(alive_now) <= 1:
             self.winner = alive_now[0].name if alive_now else None
+            reason = "elimination"
+            ended = True
+        elif self.max_turns > 0 and self.turn >= self.max_turns:
+            # 达到回合上限且未分胜负：强制评分结算
+            rankings = self._compute_rankings()
+            self.winner = rankings[0]["name"]
+            reason = "max_turns"
+            ended = True
+
+        if ended:
             self.running = False
-            self.emit(
-                "death",
-                f"🏆 游戏结束！{'最后幸存者：' + self.winner if self.winner else '全员覆灭'}（点「重置」可再来一局）",
-            )
+            if rankings is None:
+                rankings = self._compute_rankings()
+            titles = self._compute_titles(rankings)
+            self.game_over = {
+                "reason": reason,
+                "rankings": rankings,
+                "titles": titles,
+            }
+            if reason == "max_turns":
+                self.emit(
+                    "death",
+                    f"🏆 回合上限 {self.max_turns} 到达，游戏结束！胜者：{self.winner}（点「重置」可再来一局）",
+                    data={"winner": self.winner, "reason": "max_turns"},
+                )
+            else:
+                self.emit(
+                    "death",
+                    f"🏆 游戏结束！{'最后幸存者：' + self.winner if self.winner else '全员覆灭'}（点「重置」可再来一局）",
+                    data={"winner": self.winner} if self.winner else None,
+                )
+            # 称号公告
+            for title, name in titles.items():
+                self.emit("sys", f"{TITLE_EMOJIS.get(title, '')} {title}：{name}")
             self._write_log(
-                f"===== 本局结束：{'胜者 ' + self.winner if self.winner else '全员覆灭'}，共 {self.turn} 回合 ====="
+                f"===== 本局结束：{'胜者 ' + self.winner if self.winner else '全员覆灭'}，"
+                f"共 {self.turn} 回合（{reason}） ====="
             )
             self.update_stats()
+            self._review_task = asyncio.create_task(self._generate_match_review())
 
         # 解说员与定期反思：非阻塞，失败静默，不占用回合
         self._maybe_commentary()

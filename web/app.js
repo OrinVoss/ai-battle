@@ -46,6 +46,12 @@ function applyMsg(m) {
       m.world.deposits = state.snapshot.world.deposits;
     }
     state.snapshot = m;
+    // 新一局开始（重置/设置重开）：清掉上一局的解说条并停止朗读
+    if (m.turn === 0) {
+      const cb = $("commentary");
+      if (cb) { cb.classList.add("hidden"); $("commentary-text").textContent = ""; }
+      if (window.speechSynthesis) speechSynthesis.cancel();
+    }
     // 自然结束只广播 snapshot 不发 status，这里同步运行状态与胜负横幅
     state.running = !!m.running;
     if (m.winner && !state.running) showVictory(m.winner);

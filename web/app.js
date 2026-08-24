@@ -46,11 +46,15 @@ function applyMsg(m) {
       m.world.deposits = state.snapshot.world.deposits;
     }
     state.snapshot = m;
-    // 新一局开始（重置/设置重开）：清掉上一局的解说条并停止朗读
+    // 新一局开始（重置/设置重开）：清掉上一局的解说条、动画状态并停止朗读，
+    // 否则同名选手头像会从旧位置"飞"到新出生点、血条也会误闪
     if (m.turn === 0) {
       const cb = $("commentary");
       if (cb) { cb.classList.add("hidden"); $("commentary-text").textContent = ""; }
       if (window.speechSynthesis) speechSynthesis.cancel();
+      anim.agents = {};
+      anim.night = 0;
+      for (const k in prevBars) delete prevBars[k];
     }
     // 自然结束只广播 snapshot 不发 status，这里同步运行状态与胜负横幅
     state.running = !!m.running;
@@ -85,7 +89,7 @@ function fitCell(w) {
   const wrap = $("mapwrap");
   if (!wrap) return;
   const availW = wrap.clientWidth - 48;   // padding 与边框余量
-  const availH = wrap.clientHeight - 84;  // 再减去图例行高度
+  const availH = wrap.clientHeight - 118; // 再减去图例行与解说条的高度
   const c = Math.floor(Math.min(availW / w.w, availH / w.h));
   CELL = Math.max(20, Math.min(56, c));
 }
@@ -392,7 +396,16 @@ function updateCommentary(text) {
   if (!text) return;
   const el = $("commentary-text");
   el.textContent = text;
+  el.style.animation = "none";
+  el.style.transform = "";
   $("commentary").classList.remove("hidden");
+  // 文本超过可视宽度才滚动，否则静止完整显示
+  const fits = el.scrollWidth <= el.parentElement.clientWidth;
+  if (!fits) {
+    void el.offsetWidth; // 重启动画让新解说从头滚入
+    el.style.animation = "";
+    el.style.animationDuration = Math.max(8, Math.min(30, text.length * 0.45)) + "s";
+  }
 }
 
 function stripCommentaryPrefix(text) {

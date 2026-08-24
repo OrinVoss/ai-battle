@@ -95,7 +95,7 @@ input[type="checkbox"] { accent-color: var(--gold); }
 #main { flex: 1; display: flex; min-height: 0; }
 #mapwrap {
   flex: 1; display: flex; flex-direction: column; align-items: center;
-  justify-content: center; padding: 16px; overflow: auto; position: relative;
+  justify-content: center; padding: 16px 16px 56px; overflow: auto; position: relative;
 }
 #map {
   border: 1px solid var(--line2); border-radius: var(--r-md);
@@ -181,28 +181,33 @@ body.row-resize iframe, body.row-resize canvas { pointer-events: none; }
 
 /* ---------------- 日志 ---------------- */
 #logwrap { flex: 1; display: flex; flex-direction: column; min-height: 0; }
-/* 解说条：悬浮在地图区底部，电竞直播风格 */
+/* 解说条：地图区底部的新闻滚动条（ticker），不压地图（fitCell 已预留高度） */
 #commentary {
-  position: absolute; left: 50%; bottom: 46px; transform: translateX(-50%);
-  max-width: min(88%, 680px); z-index: 5;
-  display: flex; align-items: center; gap: 8px;
-  padding: 7px 14px; border-radius: 999px;
-  background: rgba(10, 13, 19, .85); backdrop-filter: blur(6px);
-  border: 1px solid rgba(240, 180, 41, .35);
-  box-shadow: 0 4px 18px rgba(0, 0, 0, .5);
-  font-size: 13px; color: #ecd28a;
-  overflow: hidden; white-space: nowrap;
+  position: absolute; left: 16px; right: 16px; bottom: 22px; z-index: 5;
+  display: flex; align-items: center; gap: 10px; height: 28px;
+  padding: 0 12px;
+  background: rgba(10, 13, 19, .82); backdrop-filter: blur(4px);
+  border: 1px solid rgba(240, 180, 41, .3); border-radius: var(--r-sm);
+  font-size: 12px; color: #ecd28a;
+  overflow: hidden;
 }
 #commentary.hidden { display: none !important; }
 #commentary .cm-tag {
   flex: none; display: inline-flex; align-items: center; gap: 4px;
-  font-weight: 700; letter-spacing: 1px;
-  background: rgba(240, 180, 41, .18); border-radius: 999px;
-  padding: 2px 9px; color: var(--gold);
+  font-weight: 700; letter-spacing: 1px; color: var(--gold);
+}
+#commentary .cm-viewport {
+  flex: 1; overflow: hidden; white-space: nowrap; position: relative; height: 100%;
+  display: flex; align-items: center;
 }
 #commentary-text {
-  overflow: hidden; text-overflow: ellipsis;
-  animation: tickerIn .35s ease;
+  display: inline-block; white-space: nowrap; will-change: transform;
+  animation: cmScroll linear infinite;
+}
+/* 文字从右侧进入，滚动到完全离开左侧，循环 */
+@keyframes cmScroll {
+  from { transform: translateX(60vw); }
+  to { transform: translateX(-100%); }
 }
 @keyframes tickerIn {
   from { opacity: 0; transform: translateX(8px); }

@@ -238,6 +238,8 @@ def resolve_loot(a, w, args, ctx):
         t.weapon_durability = 0
         extra = f"，并缴获了武器（耐久{a.weapon_durability}）"
         weapon_got = 1
+    elif t.weapon and a.weapon:
+        extra = "，死者的武器随尸体消失了"
     data = {"actor": a.name, "action": "loot", "resource": "food", "amount": got["food"]}
     if got["ore"]:
         data["ore"] = got["ore"]

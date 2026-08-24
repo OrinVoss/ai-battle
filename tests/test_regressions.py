@@ -8,7 +8,7 @@ import engine as engine_mod
 from engine import Engine
 from agent import Agent
 from world import World
-from llm import ProviderError, build_client, _try_json
+from llm import ProviderError, build_client, _try_json, demo_decide
 import tools
 
 
@@ -246,3 +246,37 @@ def test_perceive_reflects_difficulty():
     assert "能量自动-5" in text and "生命-9" in text
     assert "草地60%" in text and "森林100%" in text
     assert "能量自动-2" not in text
+
+
+# 26. 演示模式撞墙后下回合换方向
+def test_demo_avoids_last_blocked_direction(monkeypatch):
+    w = flat_world()
+    a = make_agent(w, "甲", (1, 1))
+    w.agents = [a]
+    # 上一次向下撞墙
+    a.add_event(1, "[行动结果] 前方是障碍，过不去")
+    a._demo_last_dir = "down"
+    # 让最近资源在正下方；若未避障会再次选 down
+    w.nearest_resource = lambda pos, kinds=("f", "o"): (1, 2)
+    monkeypatch.setattr(engine_mod.random, "random", lambda: 1.0)  # 跳过概率分支
+    act, args = demo_decide(a, w)
+    assert act == "move"
+    assert args["direction"] != "down"
+    assert a._demo_last_dir == args["direction"]
+
+
+# 27. 演示模式四向全堵时休息
+def test_demo_rest_when_all_blocked(monkeypatch):
+    w = flat_world()
+    a = make_agent(w, "甲", (1, 1))
+    w.agents = [a]
+    a.add_event(1, "[行动结果] 前方是障碍，过不去")
+    a._demo_last_dir = "up"
+    # 四面包围
+    w.grid[0][1] = "M"  # up
+    w.grid[2][1] = "M"  # down
+    w.grid[1][0] = "M"  # left
+    w.grid[1][2] = "M"  # right
+    monkeypatch.setattr(engine_mod.random, "random", lambda: 1.0)  # 跳过概率分支（含原地采集）
+    act, args = demo_decide(a, w)
+    assert act == "rest"

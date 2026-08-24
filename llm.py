@@ -6,6 +6,8 @@ import random
 
 from openai import AsyncOpenAI
 
+from tools import DIRS
+
 
 class ProviderError(Exception):
     pass
@@ -167,6 +169,33 @@ def _near_threat(agent, world):
     return None
 
 
+def _last_move_blocked(agent):
+    """检查最近一条 [行动结果] 是否是移动被障碍阻挡。"""
+    for entry in reversed(agent.memory):
+        if "[行动结果]" in entry:
+            return "过不去" in entry or "无法移动" in entry
+    return False
+
+
+def _pick_move(agent, world, preferred=None):
+    """为演示 AI 选一个可移动方向：优先 preferred，避开上次撞墙方向，全堵则 rest。"""
+    dirs = ["up", "down", "left", "right"]
+    if preferred and preferred in dirs:
+        dirs.remove(preferred)
+        dirs.insert(0, preferred)
+    if _last_move_blocked(agent):
+        last = getattr(agent, "_demo_last_dir", None)
+        if last and last in dirs:
+            dirs.remove(last)
+    for d in dirs:
+        dx, dy = DIRS[d]
+        nx, ny = agent.pos[0] + dx, agent.pos[1] + dy
+        if not world.is_blocked(nx, ny):
+            agent._demo_last_dir = d
+            return "move", {"direction": d}
+    return "rest", {}
+
+
 def demo_decide(agent, world):
     """规则决策：让演示模式也能演出生死存亡的戏。"""
     r = random.random()
@@ -206,7 +235,7 @@ def demo_decide(agent, world):
         if nd > 2 and t["aggression"] > 0.6 and r < 0.35:
             d = world.dir_toward(agent.pos, nb.pos)
             if d:
-                return "move", {"direction": d}
+                return _pick_move(agent, world, preferred=d)
         if nd <= 3 and r < 0.35:
             return "talk", {"text": random.choice(PHRASES)}
 
@@ -214,5 +243,5 @@ def demo_decide(agent, world):
     if res:
         d = world.dir_toward(agent.pos, res)
         if d:
-            return "move", {"direction": d}
-    return "move", {"direction": random.choice(["up", "down", "left", "right"])}
+            return _pick_move(agent, world, preferred=d)
+    return _pick_move(agent, world)

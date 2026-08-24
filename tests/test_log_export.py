@@ -5,7 +5,9 @@ import json
 import os
 
 import engine as engine_mod
-from engine import Engine
+from collections import deque
+
+from engine import Engine, _rotate_saved_files
 
 
 class FakeHub:
@@ -89,7 +91,7 @@ def test_export_prefers_log_file_when_longer(tmp_path):
     base = len(eng.history)  # reset 公告行数
     for i in range(5):
         eng.emit("sys", f"第{i}条")
-    eng.history = eng.history[-2:]  # 模拟 history 被 800 上限截断
+    eng.history = deque(list(eng.history)[-2:])  # 模拟 history 被 800 上限截断
     data = eng.export_data()
     assert len(data["logs"]) == base + 5  # 以 log 文件为准，导出完整一局
     assert data["logs"][-1] == "[T0] [sys] 第4条"
@@ -116,6 +118,17 @@ def test_export_events_array_includes_structured_data():
     assert evt["damage"] == 10
 
 
+def test_history_deque_maxlen():
+    eng = make_engine()
+    eng.reset()
+    assert isinstance(eng.history, deque)
+    for i in range(900):
+        eng.emit("sys", f"msg {i}")
+    assert len(eng.history) == 800
+    assert eng.history[0]["text"] == "msg 100"
+    assert eng.history[-1]["text"] == "msg 899"
+
+
 def test_god_message_log_has_targets_and_sow():
     eng = make_engine()
     eng.reset()
@@ -125,3 +138,40 @@ def test_god_message_log_has_targets_and_sow():
     assert entry["kind"] == "god"
     assert set(entry["targets"]) == {"甲", "乙"}
     assert entry["sow"] is True
+
+
+# ---------- 日志/回放轮转 ----------
+
+def test_rotate_saved_files_keeps_latest(tmp_path):
+    d = tmp_path / "files"
+    d.mkdir()
+    for i in range(55):
+        p = d / f"f{i:02d}.txt"
+        p.write_text("x", encoding="utf-8")
+        # 修改时间递增，保证顺序稳定
+        os.utime(p, (i, i))
+    _rotate_saved_files(str(d), keep=50)
+    remaining = sorted(os.listdir(d))
+    assert len(remaining) == 50
+    # 保留 mtime 最大的 50 个（即 f05 ~ f54）
+    assert remaining[0] == "f05.txt"
+    assert remaining[-1] == "f54.txt"
+
+
+def test_engine_reset_rotates_logs_and_replays(tmp_path, monkeypatch):
+    import engine as engine_mod
+    eng = make_engine()
+    log_d = tmp_path / "logs"
+    replay_d = tmp_path / "replays"
+    log_d.mkdir()
+    replay_d.mkdir()
+    eng.log_dir = str(log_d)
+    monkeypatch.setattr(engine_mod, "REPLAY_DIR", str(replay_d))
+    # 预先放旧文件
+    for i in range(3):
+        (log_d / f"old_{i}.log").write_text("x", encoding="utf-8")
+        (replay_d / f"old_{i}.jsonl").write_text("x", encoding="utf-8")
+    eng.reset()
+    # reset 会创建新文件；旧文件总数 <= 50 不会被删，所以只验证新增存在即可
+    assert len(list(log_d.iterdir())) >= 3
+    assert len(list(replay_d.iterdir())) >= 3

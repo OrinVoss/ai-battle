@@ -123,6 +123,30 @@ def test_god_msg_sow_single_ignored():
     assert "你是天选之人" in logs[-1]["text"]  # 退化为普通私聊，日志公开
 
 
+def test_god_msg_truncated_to_200():
+    eng = make_engine3()
+    a = eng.agents[0]
+    long_text = "x" * 300
+    err = eng.god_message(["甲"], long_text)
+    assert err is None
+    # 记忆和日志都应只保留 200 字符
+    assert any(f"[上帝只对你低语] {'x' * 200}" in m for m in a.memory)
+    assert not any(f"[上帝只对你低语] {'x' * 201}" in m for m in a.memory)
+    log_texts = [h["text"] for h in eng.history if h["kind"] == "god"]
+    assert any("x" * 200 in t for t in log_texts)
+    assert not any("x" * 201 in t for t in log_texts)
+
+
+def test_god_say_truncated_to_200():
+    eng = make_engine3()
+    long_text = "y" * 300
+    eng.god_say(long_text)
+    log_text = next(h["text"] for h in eng.history if h["kind"] == "god")
+    assert log_text == f"👁 上帝广播：{'y' * 200}"
+    for a in eng.agents:
+        assert any(f"[上帝广播] {'y' * 200}" in m for m in a.memory)
+
+
 def test_god_msg_invalid():
     eng = make_engine3()
     assert eng.god_message(["甲"], "  ") is not None            # 空文本

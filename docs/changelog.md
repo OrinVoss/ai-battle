@@ -311,6 +311,65 @@ v2 在 v1 的基础上把「生存沙盒」做成了可长期运行、可复盘�
 
 ---
 
+## 🐛 Bug 修复（v2 维护批次）
+
+### 1. WebSocket 发送失败时先 close 再剔除
+
+- `Hub.send` 对发送失败的连接先 `await ws.close()`，再移出连接集合；close 本身也做 try/except 保护。
+- 失败时打印简短日志说明剔除原因。
+- 相关代码：`main.py:27-53`。
+
+### 2. check_status.py 更友好
+
+- 端口读取优先级：`sys.argv[1]` > 环境变量 `PORT` > 默认 `8080`。
+- 连接失败打印友好错误并退出码 1，不再抛出未处理异常。
+- 相关代码：`check_status.py:1-48`。
+
+### 3. 演示模式不再反复撞墙
+
+- `demo_decide` 决定 `move` 时把方向存入 `agent._demo_last_dir`。
+- 下回合若最近 `[行动结果]` 含「过不去」或「无法移动」，则避开上次方向，用 `world.is_blocked` 预判四个方向；全堵则改为 `rest`。
+- 相关代码：`llm.py:159-192`、`tools.py:48-65`。
+
+### 4. history 改用 deque(maxlen=800)
+
+- `self.history` 由 `list` 改为 `collections.deque(maxlen=800)`，删除手动 `pop(0)` 逻辑。
+- 检查所有用法（clear / 迭代 / len / ws 重放 / commentary / review / export）均兼容 deque。
+- 相关代码：`engine.py:66-70`、`engine.py:212-220`、`tests/test_log_export.py:1-96`。
+
+### 5. reset 时自动清理旧回放与日志
+
+- `engine.reset()` 顺手清理 `replays/` 和 `logs/`，各保留最近 50 个文件（按 mtime），更老的删除；清理失败静默。
+- 相关代码：`engine.py:24-46`、`engine.py:153-156`。
+
+### 6. 上帝消息统一截断 200 字符
+
+- `engine.god_say` 与 `engine.god_message` 均统一截断 200 字符（与 `main.py` 的上帝广播处理一致），截断时不另加提示。
+- 相关代码：`engine.py:225-237`、`main.py:130-134`。
+
+### 7. /api/setup 更防御
+
+- CONFIG 取值改 `.get()` 带默认值，`world` 字段异常时回退到默认难度，缺字段不返回 500。
+- 相关代码：`main.py:149-165`。
+
+### 8. 搜尸提示补全
+
+- 自己已有武器、死者武器不继承时，反馈和日志补一句「死者的武器随尸体消失了」。
+- 相关代码：`tools.py:221-249`。
+
+### 9. 文档补充
+
+- `docs/usage.md` 称号规则处补充：霸主可颁给已死亡的击杀王（战死也留名）。
+- 相关代码：`docs/usage.md:575`。
+
+### 10. 测试补充
+
+- 新增回归用例覆盖：演示 AI 撞墙后换方向、history deque 上限、上帝消息截断、搜尸武器提示文案、日志/回放轮转。
+- 全测试套件由 91 用例增至 99 用例。
+- 相关代码：`tests/test_regressions.py`、`tests/test_god_setup.py`、`tests/test_tools.py`、`tests/test_log_export.py`。
+
+---
+
 ## 📁 目录变化
 
 v2 新增/变化：

@@ -4,6 +4,7 @@ import asyncio
 import json
 import os
 import random
+from collections import deque
 from datetime import datetime
 
 from agent import Agent
@@ -15,6 +16,28 @@ BASE = os.path.dirname(os.path.abspath(__file__))
 REPLAY_DIR = os.path.join(BASE, "replays")
 LOG_DIR = os.path.join(BASE, "logs")
 STATS_FILE = os.path.join(BASE, "stats.json")
+
+
+def _rotate_saved_files(directory, keep=50):
+    """按修改时间保留最近 keep 个文件，删除更老的；失败静默。"""
+    try:
+        entries = []
+        for name in os.listdir(directory):
+            path = os.path.join(directory, name)
+            try:
+                st = os.stat(path)
+            except OSError:
+                continue
+            if os.path.isfile(path):
+                entries.append((st.st_mtime, path))
+        entries.sort(reverse=True)
+        for _, path in entries[keep:]:
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+    except Exception:
+        pass
 
 DAY_LEN = 16     # 一个昼夜周期 24 回合：前 16 回合白天
 CYCLE_LEN = 24   # 后 8 回合夜晚
@@ -67,7 +90,7 @@ class Engine:
         self.config = config
         self.hub = hub
         self.speed = config["world"].get("turns_per_second", 0.6)
-        self.history = []
+        self.history = deque(maxlen=800)
         self._rec_file = None
         self._log_file = None
         self.log_path = None
@@ -151,6 +174,8 @@ class Engine:
 
     # ---------- 世界初始化 ----------
     def reset(self):
+        _rotate_saved_files(REPLAY_DIR, keep=50)
+        _rotate_saved_files(self.log_dir, keep=50)
         self.world = World(self.config)
         pts = self.world.spawn_points(len(self.config["agents"]))
         self.agents = [Agent(c, i, self.world) for i, c in enumerate(self.config["agents"])]
@@ -214,8 +239,6 @@ class Engine:
         if data:
             entry.update(data)
         self.history.append(entry)
-        if len(self.history) > 800:
-            self.history.pop(0)
         self._write_log(f"[T{self.turn}] [{kind}] {text}")
         try:
             asyncio.get_running_loop().create_task(self.hub.send("log", entry))
@@ -223,6 +246,9 @@ class Engine:
             pass
 
     def god_say(self, text, targets="all", sow=False):
+        text = str(text or "").strip()[:200]
+        if not text:
+            return
         self.emit("god", f"👁 上帝广播：{text}", data={"targets": targets, "sow": sow})
         for a in self.agents:
             if a.alive:

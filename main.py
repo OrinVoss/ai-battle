@@ -33,13 +33,18 @@ class Hub:
                 pass
         if not self.conns:
             return
-        # 并行发送，失败的连接剔除
+        # 并行发送，失败的连接先 close 再剔除
         targets = list(self.conns)
         results = await asyncio.gather(
             *(ws.send_text(data) for ws in targets), return_exceptions=True
         )
         for ws, r in zip(targets, results):
             if isinstance(r, Exception):
+                print(f"[Hub] WebSocket 发送失败，移除连接：{type(r).__name__}: {r}")
+                try:
+                    await ws.close()
+                except Exception:
+                    pass
                 self.conns.discard(ws)
 
 
@@ -149,14 +154,17 @@ def api_export():
 @app.get("/api/setup")
 def api_setup():
     """设置面板的编辑数据：完整选手配置 + providers 展示信息（不含 api_key）+ 难度参数。"""
+    try:
+        world = {k: engine.difficulty(k) for k in Engine.DIFFICULTY} | {"max_turns": engine.max_turns}
+    except Exception:
+        world = {k: v[0] for k, v in Engine.DIFFICULTY.items()} | {"max_turns": 300}
     return {
-        "agents": CONFIG["agents"],
+        "agents": CONFIG.get("agents", []),
         "providers": {
             k: {"name": v.get("name", k), "models": list(v.get("models", []))}
             for k, v in CONFIG.get("providers", {}).items()
         },
-        "world": {k: engine.difficulty(k) for k in Engine.DIFFICULTY}
-        | {"max_turns": engine.max_turns},
+        "world": world,
     }
 
 

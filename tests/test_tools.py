@@ -382,17 +382,25 @@ def test_loot_weapon_transfer():
     assert "缴获" in fb
     assert a.weapon is True and a.weapon_durability == 4
     assert b.weapon is False and b.weapon_durability == 0
-    # 自己已有武器时，死者武器不继承
-    w2, a2, b2 = pair()
-    b2.alive = False
-    b2.pos = a2.pos
-    b2.weapon = True
-    b2.weapon_durability = 4
-    a2.weapon = True
-    a2.weapon_durability = 5
-    fb3, _ = tools.resolve_loot(a2, w2, {"target": "乙"}, Ctx())
-    assert "缴获" not in fb3
-    assert a2.weapon_durability == 5  # 自己的武器不受影响
+
+
+def test_loot_weapon_vanishes_when_actor_has_weapon():
+    """自己已有武器时，死者武器不继承，且提示文案正确。"""
+    w, a, b = pair()
+    b.alive = False
+    b.state = "死亡"
+    b.pos = a.pos
+    b.items = {"food": 0, "ore": 0}
+    b.weapon = True
+    b.weapon_durability = 4
+    a.weapon = True
+    a.weapon_durability = 5
+    fb, logs = tools.resolve_loot(a, w, {"target": "乙"}, Ctx())
+    assert "缴获" not in fb
+    assert "死者的武器随尸体消失了" in fb
+    assert a.weapon_durability == 5  # 自己的武器不受影响
+    log_text = logs[0][1]
+    assert "死者的武器随尸体消失了" in log_text
 
 
 def test_corpse_visible_in_perception():

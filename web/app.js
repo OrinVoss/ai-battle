@@ -54,6 +54,7 @@ function applyMsg(m) {
       if (window.speechSynthesis) speechSynthesis.cancel();
       anim.agents = {};
       anim.night = 0;
+      settleDismissed = false; // 新一局允许再次自动弹结算面板
       for (const k in prevBars) delete prevBars[k];
     }
     // 自然结束只广播 snapshot 不发 status，这里同步运行状态与胜负横幅
@@ -461,8 +462,19 @@ function showBanner(text, icName = "warning") {
 }
 function hideBanner() { $("banner").classList.add("hidden"); }
 
-/* 胜利/结算横幅：胜者 + 称号；点击打开结算面板 */
-function showVictory(name) {
+/* 有浮层（设置/排行/关系/回放/结算）打开时不显示横幅，避免遮挡；
+   浮层全部关闭且游戏已结束时恢复胜者横幅 */
+function anyOverlayOpen() {
+  return [...document.querySelectorAll(".overlay")].some(o => !o.classList.contains("hidden"));
+}
+function syncBannerWithOverlays() {
+  if (anyOverlayOpen()) { $("banner").classList.add("hidden"); return; }
+  const s = state.snapshot;
+  if (s && s.game_over && !state.running && s.winner) showVictoryBanner(s.winner);
+}
+
+/* 胜利横幅内容（不含结算面板调度） */
+function showVictoryBanner(name) {
   const s = state.snapshot;
   const a = s && s.agents.find(x => x.name === name);
   const icn = a ? avatarIconName(a.emoji) : "trophy";
@@ -472,13 +484,26 @@ function showVictory(name) {
   $("banner").innerHTML = `<span class="v-emoji">${icon(icn, 44)}</span>
     <span class="v-text"><span class="v-title">${icon("trophy", 12)} WINNER</span><span class="v-name">${esc(name)}</span>${titleParts.length ? `<span class="v-titles">${titleParts.join(" · ")}</span>` : ""}</span>`;
   $("banner").classList.remove("hidden");
+}
+
+/* 用户手动关过结算面板后，复盘到达不再自动弹出（重置时归零） */
+let settleDismissed = false;
+
+/* 展开结算面板并收起悬浮横幅（信息已在面板里，不重复悬着） */
+function openSettlePanel() {
+  renderSettlement();
+  $("settle-panel").classList.remove("hidden");
+  hideBanner();
+}
+
+/* 胜利/结算横幅：胜者 + 称号；点击打开结算面板 */
+function showVictory(name) {
+  showVictoryBanner(name);
   renderSettlement();
   // 自动弹出结算面板（延迟让用户先看到横幅）
   if (!$("settle-panel").classList.contains("hidden")) return;
   setTimeout(() => {
-    if (state.snapshot && state.snapshot.winner && !state.running) {
-      $("settle-panel").classList.remove("hidden");
-    }
+    if (state.snapshot && state.snapshot.winner && !state.running && !settleDismissed) openSettlePanel();
   }, 900);
 }
 
@@ -516,17 +541,15 @@ function onReview(text) {
   const box = $("settle-review");
   if (!box) return;
   box.innerHTML = `<div class="st-review-label">${icon("broadcast", 12)} AI 复盘</div><div class="st-review-text">${esc(text)}</div>`;
-  // 如果复盘在游戏结束后才到达，且结算面板未打开，自动弹出
-  if (state.snapshot && state.snapshot.game_over && !state.running && $("settle-panel").classList.contains("hidden")) {
-    $("settle-panel").classList.remove("hidden");
+  // 如果复盘在游戏结束后才到达，且结算面板未打开且用户没手动关过，自动弹出
+  if (state.snapshot && state.snapshot.game_over && !state.running && !settleDismissed
+      && $("settle-panel").classList.contains("hidden")) {
+    openSettlePanel();
   }
 }
 
 $("banner").onclick = () => {
-  if (state.snapshot && state.snapshot.game_over) {
-    renderSettlement();
-    $("settle-panel").classList.remove("hidden");
-  }
+  if (state.snapshot && state.snapshot.game_over) openSettlePanel();
 };
 
 /* 击杀/死亡顶部全屏播报（2 秒淡出） */
@@ -640,6 +663,7 @@ let setupData = null; // {agents, providers, world}
 
 $("btn-setup").onclick = async () => {
   $("setup-panel").classList.remove("hidden");
+  syncBannerWithOverlays();
   $("setup-msg").textContent = "";
   try { setupData = await (await fetch("/api/setup")).json(); }
   catch (e) { setupData = null; $("setup-msg").textContent = "读取配置失败"; return; }
@@ -817,6 +841,7 @@ document.querySelectorAll("#logtabs .tab").forEach(btn => {
 /* ---------------- 排行榜 ---------------- */
 $("btn-lb").onclick = async () => {
   $("lb-panel").classList.remove("hidden");
+  syncBannerWithOverlays();
   let data = {};
   try { data = await (await fetch("/api/stats")).json(); } catch (e) {}
   const rows = Object.values(data).sort((x, y) => y.elo - x.elo);
@@ -833,6 +858,7 @@ $("btn-lb").onclick = async () => {
 /* ---------------- 关系图谱 ---------------- */
 $("btn-rel").onclick = () => {
   $("rel-panel").classList.toggle("hidden");
+  syncBannerWithOverlays();
   drawRelations();
 };
 
@@ -900,6 +926,7 @@ const rp = { active: false, msgs: [], idx: 0, playing: false, timer: null };
 
 $("btn-replay").onclick = async () => {
   $("rp-list").classList.remove("hidden");
+  syncBannerWithOverlays();
   let list = [];
   try { list = await (await fetch("/api/replays")).json(); } catch (e) {}
   const box = $("rp-items");
@@ -918,7 +945,11 @@ $("btn-replay").onclick = async () => {
 };
 
 document.querySelectorAll(".panel-close").forEach(btn => {
-  btn.onclick = () => $(btn.dataset.close).classList.add("hidden");
+  btn.onclick = () => {
+    $(btn.dataset.close).classList.add("hidden");
+    if (btn.dataset.close === "settle-panel") settleDismissed = true; // 用户主动关过，不再自动弹
+    syncBannerWithOverlays(); // 浮层全关了才把横幅放回来
+  };
 });
 
 async function startReplay(name) {

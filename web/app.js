@@ -674,9 +674,11 @@ function renderAgentCard(a, i, ro) {
         ${avatarButtons}
         <input type="text" class="sa-emoji" value="${esc(a.emoji)}" maxlength="4" title="自定义 emoji" ${ro ? "disabled" : ""}>
       </div>
+      <button class="sa-del" ${ro ? "disabled" : ""}>删除</button>
+    </div>
+    <div class="sa-namerow">
       <input type="text" class="sa-name" value="${esc(a.name)}" placeholder="名字" ${ro ? "disabled" : ""}>
       <input type="text" class="sa-role" value="${esc(a.role)}" placeholder="角色" ${ro ? "disabled" : ""}>
-      <button class="sa-del" ${ro ? "disabled" : ""}>删除</button>
     </div>
     <div class="sa-provs">
       <select class="sa-provider" ${ro ? "disabled" : ""}>${provOpts}</select>

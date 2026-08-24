@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI 大战 · 多模型生存沙盒</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header id="topbar">
+  <div class="tb-left">
+    <div class="brand"><i class="ic" data-icon="swords" data-size="17"></i> AI 大战 <span class="sub">多模型生存沙盒</span></div>
+    <div id="status">
+      <span class="chip" id="daynight"><i class="ic" data-icon="sun" data-size="12"></i> 白天</span>
+      <span class="chip" id="turn">回合 0</span>
+      <span class="chip" id="alive">存活 0/0</span>
+      <span class="chip chip-run" id="runstate">已暂停</span>
+      <span id="demo-note" class="hidden">演示模式</span>
+    </div>
+  </div>
+  <div id="controls" class="tb-center">
+    <button id="btn-play" class="primary"><i class="ic" data-icon="play" data-size="13"></i> 开始</button>
+    <button id="btn-step"><i class="ic" data-icon="step" data-size="13"></i> 单步</button>
+    <button id="btn-reset"><i class="ic" data-icon="reset" data-size="13"></i> 重置</button>
+    <label class="speed-box">速度
+      <input type="range" id="speed" min="0.1" max="5" step="0.1" value="0.6">
+      <span id="speed-val">0.6x</span>
+    </label>
+  </div>
+  <div id="godbox" class="tb-right">
+    <button id="btn-setup" title="开局设置"><i class="ic" data-icon="gear" data-size="14"></i></button>
+    <button id="btn-rel" title="关系图谱"><i class="ic" data-icon="graph" data-size="14"></i></button>
+    <button id="btn-lb" title="排行榜"><i class="ic" data-icon="trophy" data-size="14"></i></button>
+    <span class="tb-sep"></span>
+    <button id="btn-god"><i class="ic" data-icon="eye" data-size="14"></i> 上帝 ▾</button>
+    <button id="btn-replay"><i class="ic" data-icon="film" data-size="14"></i> 回放</button>
+    <button id="btn-export" title="导出本局 JSON"><i class="ic" data-icon="download" data-size="14"></i></button>
+    <div id="god-panel" class="hidden">
+      <div class="g-sec">
+        <div class="g-title">传话（选「全体」即广播）</div>
+        <div id="gm-targets"></div>
+        <input id="gm-text" placeholder="消息内容…（回车发送）" maxlength="200">
+        <label class="g-sow"><input type="checkbox" id="gm-sow"> <i class="ic" data-icon="spark" data-size="13"></i> 顺便挑拨：收信人之间关系 -5</label>
+        <button id="gm-btn" class="primary">发送</button>
+      </div>
+    </div>
+  </div>
+</header>
+<div id="replaybar" class="hidden">
+  <span class="rp-tag"><i class="ic" data-icon="film" data-size="14"></i> 回放</span>
+  <button id="rp-play"><i class="ic" data-icon="pause" data-size="13"></i></button>
+  <input type="range" id="rp-slider" min="0" max="0" value="0">
+  <span id="rp-pos">0/0</span>
+  <select id="rp-speed">
+    <option value="0.5">0.5x</option>
+    <option value="1" selected>1x</option>
+    <option value="2">2x</option>
+    <option value="4">4x</option>
+  </select>
+  <button id="rp-exit">退出回放</button>
+</div>
+<div id="main">
+  <div id="mapwrap">
+    <canvas id="map" width="0" height="0"></canvas>
+    <div id="legend"><span class="lg-sq"></span> 平地 &nbsp;<i class="ic" data-icon="tree" data-size="13"></i> 森林 &nbsp;<i class="ic" data-icon="droplet" data-size="13"></i> 水域 &nbsp;<i class="ic" data-icon="mountain" data-size="13"></i> 山地 &nbsp;<i class="ic" data-icon="wheat" data-size="13"></i> 食物矿 &nbsp;<i class="ic" data-icon="pickaxe" data-size="13"></i> 矿石矿 &nbsp;<i class="ic" data-icon="skull" data-size="13"></i> 尸体</div>
+  </div>
+  <aside id="side">
+    <div id="agents"></div>
+    <div id="sidesplit" title="拖拽调整卡片区与日志区的高度"></div>
+    <div id="logwrap">
+      <div id="logtabs">
+        <button class="tab active" data-f="all">全部</button>
+        <button class="tab" data-f="talk">对话</button>
+        <button class="tab" data-f="think">思考</button>
+        <button class="tab" data-f="fight">战斗</button>
+        <button class="tab" data-f="trade">交易</button>
+        <button class="tab" data-f="sys">系统</button>
+      </div>
+      <div id="log"></div>
+    </div>
+  </aside>
+</div>
+<div id="killbanner" class="hidden"></div>
+<div id="banner" class="hidden"></div>
+
+<div id="lb-panel" class="overlay hidden">
+  <div class="panel">
+    <div class="panel-head"><span><i class="ic" data-icon="trophy" data-size="15"></i> 排行榜（跨局累计）</span><button class="panel-close" data-close="lb-panel">✕</button></div>
+    <table id="lb-table"></table>
+  </div>
+</div>
+<div id="rel-panel" class="overlay hidden">
+  <div class="panel">
+    <div class="panel-head"><span><i class="ic" data-icon="graph" data-size="15"></i> 关系图谱（绿=盟友 ≥3，红=敌对 ≤-3）</span><button class="panel-close" data-close="rel-panel">✕</button></div>
+    <canvas id="rel-canvas" width="420" height="420"></canvas>
+  </div>
+</div>
+<div id="rp-list" class="overlay hidden">
+  <div class="panel">
+    <div class="panel-head"><span><i class="ic" data-icon="film" data-size="15"></i> 选择一局回放</span><button class="panel-close" data-close="rp-list">✕</button></div>
+    <div id="rp-items"></div>
+  </div>
+</div>
+<div id="setup-panel" class="overlay hidden">
+  <div class="panel setup-panel">
+    <div class="panel-head"><span><i class="ic" data-icon="gear" data-size="15"></i> 开局设置</span><button class="panel-close" data-close="setup-panel">✕</button></div>
+    <div id="setup-ro" class="hidden"><i class="ic" data-icon="pause" data-size="12"></i> 游戏运行中，设置为只读；暂停后才能应用修改。</div>
+    <div id="setup-agents"></div>
+    <button id="setup-add">+ 添加选手</button>
+    <div class="g-title" style="margin-top:12px">难度</div>
+    <div id="setup-diff"></div>
+    <div id="setup-msg"></div>
+    <div class="setup-btns">
+      <button id="setup-apply" class="primary">应用（重开一局）</button>
+      <button id="setup-save">保存到文件</button>
+    </div>
+  </div>
+</div>
+<script src="/icons.js"></script>
+<script src="/app.js"></script>
+</body>
+</html>

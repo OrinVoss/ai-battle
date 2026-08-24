@@ -1,0 +1,95 @@
+"""比赛日志落盘 / 一键导出的测试。"""
+
+import asyncio
+import json
+import os
+
+import engine as engine_mod
+from engine import Engine
+
+
+class FakeHub:
+    recorder = None
+
+    async def send(self, type_, payload):
+        pass
+
+
+def make_engine(providers=None):
+    cfg = {
+        "world": {"width": 8, "height": 6, "seed": 5},
+        "providers": providers or {},
+        "agents": [
+            {"name": "甲", "emoji": "🤖", "provider": "none", "model": "m"},
+            {"name": "乙", "emoji": "🤖", "provider": "none", "model": "m"},
+        ],
+    }
+    return Engine(cfg, FakeHub())
+
+
+def log_files(d):
+    return [f for f in os.listdir(d) if f.endswith(".log")]
+
+
+# ---------- 日志落盘 ----------
+
+def test_log_file_written(tmp_path):
+    eng = make_engine()
+    eng.log_dir = str(tmp_path)
+    eng.reset()  # 重开一局 → 在临时目录开新文件
+    eng.emit("fight", "阿哲 攻击 乌鸦，造成 11 点伤害")
+    eng.emit("think", "💭 阿哲 想：先下手为强")
+    files = log_files(tmp_path)
+    assert len(files) == 1
+    lines = open(os.path.join(tmp_path, files[0]), encoding="utf-8").read().splitlines()
+    assert "[T0] [fight] 阿哲 攻击 乌鸦，造成 11 点伤害" in lines
+    assert "[T0] [think] 💭 阿哲 想：先下手为强" in lines
+    # reset 换新文件，旧文件关闭
+    eng.reset()
+    assert len(log_files(tmp_path)) == 2
+
+
+def test_log_game_over_summary(tmp_path, monkeypatch):
+    eng = make_engine()
+    eng.log_dir = str(tmp_path)
+    # 战绩文件也指向临时目录，避免污染项目根目录
+    monkeypatch.setattr(engine_mod, "STATS_FILE", str(tmp_path / "stats.json"))
+    eng.reset()
+    monkeypatch.setattr(engine_mod, "demo_decide", lambda a, w: ("wait", {}))
+    eng.agents[1].alive = False  # 只剩甲，下一回合结束
+    asyncio.run(eng.run_turn())
+    assert eng.winner == "甲"
+    content = open(eng.log_path, encoding="utf-8").read()
+    assert "本局结束：胜者 甲" in content
+
+
+# ---------- 一键导出 ----------
+
+def test_export_structure_and_no_api_key():
+    eng = make_engine(providers={
+        "deepseek": {"name": "DeepSeek", "base_url": "https://x", "api_key": "sk-test-secret",
+                     "models": ["m1"], "price_input": 2, "price_output": 8},
+    })
+    eng.emit("sys", "一条日志")
+    data = eng.export_data()
+    assert set(data) == {"meta", "agents", "logs"}
+    assert data["meta"]["turn"] == 0 and "exported_at" in data["meta"]
+    a = data["agents"][0]
+    for k in ("name", "model", "role", "backstory", "traits", "hp", "items", "kills", "relations"):
+        assert k in a
+    blob = json.dumps(data, ensure_ascii=False)
+    assert "api_key" not in blob and "sk-test-secret" not in blob
+    assert data["logs"][-1] == "[T0] [sys] 一条日志"  # reset 自身的公告也在日志里
+
+
+def test_export_prefers_log_file_when_longer(tmp_path):
+    eng = make_engine()
+    eng.log_dir = str(tmp_path)
+    eng.reset()
+    base = len(eng.history)  # reset 公告行数
+    for i in range(5):
+        eng.emit("sys", f"第{i}条")
+    eng.history = eng.history[-2:]  # 模拟 history 被 800 上限截断
+    data = eng.export_data()
+    assert len(data["logs"]) == base + 5  # 以 log 文件为准，导出完整一局
+    assert data["logs"][-1] == "[T0] [sys] 第4条"

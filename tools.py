@@ -16,6 +16,7 @@ TOOL_SCHEMAS = [
     {"type": "function", "function": {"name": "inspect", "description": "观察指定代理的详细状态。", "parameters": {"type": "object", "properties": {"target": {"type": "string"}}, "required": ["target"]}}},
     {"type": "function", "function": {"name": "loot", "description": "搜刮同一格内尸体的物品。", "parameters": {"type": "object", "properties": {"target": {"type": "string", "description": "尸体所属代理的名字"}}, "required": ["target"]}}},
     {"type": "function", "function": {"name": "craft", "description": "用3块矿石打造武器（攻击+10）。", "parameters": {"type": "object", "properties": {}}}},
+    {"type": "function", "function": {"name": "give", "description": "单方面把食物或矿石赠送给距离4格内的其他存活代理，受赠者会领情（关系+2）。", "parameters": {"type": "object", "properties": {"target": {"type": "string", "description": "受赠者名字"}, "item": {"type": "string", "enum": ["food", "ore"], "description": "赠送物品"}, "amount": {"type": "integer", "description": "赠送数量"}}, "required": ["target", "item", "amount"]}}},
     {"type": "function", "function": {"name": "propose_trade", "description": "向距离4格内的代理提出以物易物交易。", "parameters": {"type": "object", "properties": {"target": {"type": "string"}, "offer_item": {"type": "string", "enum": ["food", "ore"]}, "offer_amount": {"type": "integer"}, "want_item": {"type": "string", "enum": ["food", "ore"]}, "want_amount": {"type": "integer"}}, "required": ["target", "offer_item", "offer_amount", "want_item", "want_amount"]}}},
     {"type": "function", "function": {"name": "accept_trade", "description": "接受收到的交易提案。", "parameters": {"type": "object", "properties": {"trade_id": {"type": "string"}}, "required": ["trade_id"]}}},
     {"type": "function", "function": {"name": "decline_trade", "description": "拒绝收到的交易提案。", "parameters": {"type": "object", "properties": {"trade_id": {"type": "string"}}, "required": ["trade_id"]}}},
@@ -111,13 +112,17 @@ def resolve_attack(a, w, args, ctx):
     if a.energy < 5:
         return "能量不足，无法攻击", []
     a.energy -= 5
-    # 难度：伤害倍率作用于最终伤害（含武器加成）
+    # 难度：伤害倍率作用于最终伤害（含武器加成）；夜晚再额外+3
+    night = getattr(w, "night", False)
     dmg = round((random.randint(8, 14) + (10 if a.weapon else 0)) * getattr(w, "damage_mult", 1.0))
+    if night:
+        dmg += 3
     t.hp -= dmg
     a.relation[t.name] = a.relation.get(t.name, 0) - 4
     t.relation[a.name] = t.relation.get(a.name, 0) - 6
     t.last_attacker = a.name
-    logs = [("fight", f"⚔️ {a.name} 攻击 {t.name}，造成 {dmg} 点伤害（{t.name} 剩余 HP {max(0, t.hp)}）")]
+    night_note = "（夜晚偷袭+3）" if night else ""
+    logs = [("fight", f"⚔️ {a.name} 攻击 {t.name}，造成 {dmg} 点伤害{night_note}（{t.name} 剩余 HP {max(0, t.hp)}）")]
     if a.weapon:
         a.weapon_durability -= 1
         if a.weapon_durability <= 0:
@@ -133,7 +138,7 @@ def resolve_attack(a, w, args, ctx):
         for o in w.agents:
             if o.alive and o is not a and w.dist(o.pos, t.pos) <= 6:
                 o.add_event(ctx.turn, f"[目睹] {t.name} 被 {a.name} 杀死在 {t.pos}")
-    return f"对 {t.name} 造成 {dmg} 伤害", logs
+    return f"对 {t.name} 造成 {dmg} 伤害{night_note}", logs
 
 
 def resolve_talk(a, w, args, ctx):
@@ -220,6 +225,32 @@ def resolve_craft(a, w, args, ctx):
     a.weapon = True
     a.weapon_durability = 6
     return "打造了一把武器（攻击+10，耐久6）", [("item", f"🔨 {a.name} 用3块矿石打造了武器！")]
+
+
+def resolve_give(a, w, args, ctx):
+    t = _target(w, args.get("target", ""), a)
+    if not t:
+        return "赠送对象不存在或已死亡", []
+    if w.dist(a.pos, t.pos) > 4:
+        return "对方太远，没法赠送", []
+    item = args.get("item")
+    if item not in ("food", "ore"):
+        return "只能赠送 food 或 ore", []
+    try:
+        amount = int(args.get("amount", 0))
+    except (TypeError, ValueError):
+        return "赠送数量无效", []
+    if amount < 1:
+        return "赠送数量至少为1", []
+    if a.items.get(item, 0) < amount:
+        return f"你的{item}不够", []
+    a.items[item] -= amount
+    t.items[item] += amount
+    t.relation[a.name] = t.relation.get(a.name, 0) + 2
+    return (
+        f"你送给 {t.name} {amount}个{item}，{t.name} 对你领情了",
+        [("trade", f"🎁 {a.name} 送给 {t.name} {amount}个{item}")],
+    )
 
 
 def resolve_propose_trade(a, w, args, ctx):
@@ -335,6 +366,7 @@ RESOLVE = {
     "inspect": resolve_inspect,
     "loot": resolve_loot,
     "craft": resolve_craft,
+    "give": resolve_give,
     "propose_trade": resolve_propose_trade,
     "accept_trade": resolve_accept_trade,
     "decline_trade": resolve_decline_trade,

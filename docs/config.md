@@ -37,6 +37,8 @@
 | `damage_mult` | float | 否 | 1.0 | 0.5~2.0 | 攻击伤害倍率（`engine.py:260`） |
 | `event_prob` | float | 否 | 0.08 | 0~0.3 | 世界事件触发概率（`engine.py:261`） |
 | `gather_mult` | float | 否 | 1.0 | 0.5~2.0 | 采集成功率倍率（`engine.py:262`） |
+| `commentary_interval` | int | 否 | 5 | 0 或 ≥1 | 每 N 回合触发一次 AI 解说（0=关闭）（`engine.py`） |
+| `reflect_interval` | int | 否 | 10 | 0 或 ≥1 | 每 M 回合触发一次代理反思（0=关闭）（`engine.py`） |
 
 ### 字段详解
 
@@ -89,6 +91,13 @@
 - 设为 2.0 时，草地 60%、森林 100% 成功。
 - 设为 0.5 时，草地 15%、森林 25% 成功。
 
+#### `commentary_interval` / `reflect_interval`
+
+- `commentary_interval`：每多少回合让解说员 LLM 点评一次局势，默认 5；设为 0 关闭。
+- `reflect_interval`：每多少回合让有真实模型的存活代理做一次反思并写入 notes，默认 10；设为 0 关闭。
+- 两者都是非阻塞调用，失败静默，不影响主循环。
+- 演示模式（无可用 API Key）下解说与反思自动关闭。
+
 ### 难度参数对游戏节奏的影响
 
 | 参数调高 | 效果 |
@@ -130,6 +139,23 @@
 | `price_input` | float | 否 | 每百万 prompt token 单价（元），用于费用估算（`engine.py:360`） |
 | `price_output` | float | 否 | 每百万 completion token 单价（元）（`engine.py:360`） |
 | `models` | string[] | 否 | 该 provider 提供的模型列表，供前端下拉框使用（`main.py:155`） |
+
+### 解说员专属配置 `commentator`
+
+可在 `config.json` 顶层增加可选的 `commentator` 节，指定解说员使用的 provider 与模型；
+不配置时，引擎会自动挑选第一个有可用 API Key 的 provider 的第一个模型。
+
+```json
+"commentator": {
+  "provider": "deepseek",
+  "model": "deepseek-v4-flash"
+}
+```
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `provider` | string | 否 | 引用 `providers` 中的键 |
+| `model` | string | 否 | 该 provider 下的模型名 |
 
 ### 字段详解
 

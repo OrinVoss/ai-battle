@@ -4,6 +4,9 @@
 const $ = id => document.getElementById(id);
 const state = { snapshot: null, filter: "all", running: false, lines: [] };
 let ws = null;
+let speechOn = false;
+let speechVoice = null;
+const synth = window.speechSynthesis || null;
 
 function connect() {
   if (ws && ws.readyState < 2) return; // 已有连接或正在连接，避免重连竞态建双连接
@@ -193,6 +196,8 @@ function drawFrame(now) {
     ctx.fillStyle = `rgba(7, 10, 26, ${anim.night.toFixed(3)})`;
     ctx.fillRect(0, 0, logicalW, logicalH);
   }
+  const nameTags = []; // 名字第二遍统一绘制，避免被相邻头像遮盖
+  const circles = [];  // 所有头像位置，用于判断名字是否会压住下面的头像
   for (const a of s.agents) {
     const st = anim.agents[a.name];
     if (!st) continue;
@@ -231,21 +236,30 @@ function drawFrame(now) {
     drawIcon(ctx, a.alive ? avatarIconName(a.emoji) : "skull", 0, 0, CELL * 0.58,
       a.alive ? "#22293a" : "#9aa5b3");
     ctx.restore();
-    if (a.alive) {
-      ctx.font = `${Math.max(9, Math.round(CELL * 0.36))}px sans-serif`;
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.shadowColor = "rgba(0, 0, 0, .85)";
-      ctx.shadowBlur = 3;
-      ctx.fillStyle = "#eef2fa";
-      // 底部空间不够时名字改画到头像上方；横向按文本宽度钳制，避免边缘被裁
-      const below = cy + CELL * 0.62 + 7;
-      const ny = below + 6 > logicalH ? cy - CELL * 0.62 - 7 : below;
-      const halfW = ctx.measureText(a.name).width / 2 + 2;
-      const nx = Math.min(Math.max(cx, halfW), logicalW - halfW);
-      ctx.fillText(a.name, nx, ny);
-      ctx.shadowBlur = 0;
+    circles.push({ cx, cy });
+    if (a.alive) nameTags.push({ name: a.name, cx, cy });
+  }
+  // 第二遍：统一画名字（在最上层，不会被其他头像盖住）
+  if (nameTags.length) {
+    ctx.font = `${Math.max(9, Math.round(CELL * 0.36))}px sans-serif`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.shadowColor = "rgba(0, 0, 0, .85)";
+    ctx.shadowBlur = 3;
+    ctx.fillStyle = "#eef2fa";
+    for (const t of nameTags) {
+      // 下方有其他头像时名字改画到上方，避免压住别人；底部空间不够时也画到上方
+      const belowBlocked = circles.some(c =>
+        !(c.cx === t.cx && c.cy === t.cy) &&
+        Math.abs(c.cx - t.cx) < CELL * 0.9 && c.cy > t.cy && c.cy - t.cy < CELL * 1.6);
+      const below = t.cy + CELL * 0.62 + 7;
+      const above = t.cy - CELL * 0.62 - 7;
+      const ny = (belowBlocked || below + 6 > logicalH) ? above : below;
+      const halfW = ctx.measureText(t.name).width / 2 + 2;
+      const nx = Math.min(Math.max(t.cx, halfW), logicalW - halfW);
+      ctx.fillText(t.name, nx, ny);
     }
+    ctx.shadowBlur = 0;
   }
 }
 (function mapLoop() { drawFrame(performance.now()); requestAnimationFrame(mapLoop); })();
@@ -320,13 +334,13 @@ const KIND_FILTER = {
   think: ["think"],
   fight: ["fight", "death"],
   trade: ["trade"],
-  sys: ["sys", "move", "item", "god", "event"],
+  sys: ["sys", "move", "item", "god", "event", "commentary"],
 };
 
 /* 日志 kind -> 行首 SVG 小图标 */
 const KIND_ICONS = {
   talk: "chat", think: "thought", fight: "swords", death: "skull", trade: "trade",
-  sys: "gear", move: "move", item: "box", god: "eye", event: "spark",
+  sys: "gear", move: "move", item: "box", god: "eye", event: "spark", commentary: "broadcast",
 };
 
 /* 后端日志字符串行首内嵌的 UI emoji（💀💭⚔️…）在前端渲染时剥掉，换成 kind 图标；
@@ -340,6 +354,7 @@ function addLog(m) {
   if (state.lines.length > 800) state.lines.shift();
   appendLine(state.lines[state.lines.length - 1]);
   if (m.kind === "death") showKillBanner(m.text); // 击杀/死亡全屏播报
+  if (m.kind === "commentary") onCommentaryLog(m.text);
 }
 function appendLine(line) {
   const el = document.createElement("div");
@@ -359,6 +374,59 @@ function applyFilterLine(el) {
   el.style.display = (f === null || f.includes(el.dataset.kind)) ? "" : "none";
 }
 function applyFilter() { document.querySelectorAll("#log .l").forEach(applyFilterLine); }
+
+/* ---------------- 解说员与语音 ---------------- */
+function updateCommentary(text) {
+  if (!text) return;
+  const el = $("commentary-text");
+  el.textContent = text;
+  $("commentary").classList.remove("hidden");
+}
+
+function stripCommentaryPrefix(text) {
+  return String(text == null ? "" : text).replace(/^📣\s*解说[：:]?\s*/, "");
+}
+
+function initSpeechVoices() {
+  if (!synth) return;
+  const pick = () => {
+    const voices = synth.getVoices() || [];
+    speechVoice = voices.find(v => v.lang && v.lang.toLowerCase().startsWith("zh")) || voices[0] || null;
+  };
+  pick();
+  if (synth.onvoiceschanged !== undefined) {
+    synth.onvoiceschanged = pick;
+  }
+}
+initSpeechVoices();
+
+function speakCommentary(text) {
+  if (!speechOn || !synth || !text) return;
+  try {
+    synth.cancel();
+    const u = new SpeechSynthesisUtterance(text);
+    if (speechVoice) u.voice = speechVoice;
+    u.lang = speechVoice ? speechVoice.lang : "zh-CN";
+    u.rate = 1.05;
+    u.pitch = 1.0;
+    synth.speak(u);
+  } catch (e) {
+    console.error("[speech]", e);
+  }
+}
+
+/* 解说日志也更新滚动条并朗读 */
+function onCommentaryLog(text) {
+  const clean = stripCommentaryPrefix(text);
+  updateCommentary(clean);
+  speakCommentary(clean);
+}
+
+$("btn-sound").onclick = () => {
+  speechOn = !speechOn;
+  $("btn-sound").classList.toggle("on", speechOn);
+  if (!speechOn && synth) synth.cancel();
+};
 
 /* ---------------- 控制 ---------------- */
 function showBanner(text, icName = "warning") {
@@ -531,9 +599,15 @@ function renderAgentCard(a, i, ro) {
     <label class="sa-trait">${label}
       <input type="range" min="0" max="1" step="0.05" value="${a.traits[k] ?? 0.5}" data-trait="${k}" ${ro ? "disabled" : ""}>
       <span class="tv">${(a.traits[k] ?? 0.5).toFixed(2)}</span></label>`).join("");
+  const avatarButtons = AVATAR_CHOICES.map(({ emoji, iconName }) =>
+    `<button type="button" class="sa-avatar-btn ${a.emoji === emoji ? "selected" : ""}" data-emoji="${esc(emoji)}" title="${esc(emoji)}" ${ro ? "disabled" : ""}>${icon(iconName, 18)}</button>`
+  ).join("");
   d.innerHTML = `
     <div class="sa-head">
-      <input type="text" class="sa-emoji" value="${esc(a.emoji)}" title="emoji（头像映射键）" ${ro ? "disabled" : ""}>
+      <div class="sa-avatar-picker">
+        ${avatarButtons}
+        <input type="text" class="sa-emoji" value="${esc(a.emoji)}" maxlength="4" title="自定义 emoji" ${ro ? "disabled" : ""}>
+      </div>
       <input type="text" class="sa-name" value="${esc(a.name)}" placeholder="名字" ${ro ? "disabled" : ""}>
       <input type="text" class="sa-role" value="${esc(a.role)}" placeholder="角色" ${ro ? "disabled" : ""}>
       <button class="sa-del" ${ro ? "disabled" : ""}>删除</button>
@@ -546,6 +620,20 @@ function renderAgentCard(a, i, ro) {
     <label class="sa-field"><span>背景</span><textarea data-f="backstory" ${ro ? "disabled" : ""}>${esc(a.backstory)}</textarea></label>
     <label class="sa-field"><span>性格</span><textarea data-f="personality" ${ro ? "disabled" : ""}>${esc(a.personality)}</textarea></label>
     <label class="sa-field"><span>策略</span><textarea data-f="strategy" ${ro ? "disabled" : ""}>${esc(a.strategy)}</textarea></label>`;
+  /* 头像选择器交互 */
+  const picker = d.querySelector(".sa-avatar-picker");
+  const emojiInput = picker.querySelector(".sa-emoji");
+  const updateAvatarSelection = () => {
+    const val = emojiInput.value.trim();
+    picker.querySelectorAll(".sa-avatar-btn").forEach(b => b.classList.toggle("selected", b.dataset.emoji === val));
+  };
+  picker.querySelectorAll(".sa-avatar-btn").forEach(btn => {
+    btn.onclick = () => {
+      emojiInput.value = btn.dataset.emoji;
+      updateAvatarSelection();
+    };
+  });
+  emojiInput.addEventListener("input", updateAvatarSelection);
   /* 文本框随内容自动撑高 */
   d.querySelectorAll("textarea").forEach(ta => {
     const grow = () => { ta.style.height = "auto"; ta.style.height = ta.scrollHeight + "px"; };

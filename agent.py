@@ -154,6 +154,7 @@ class Agent:
         forest_rate = min(100, round(50 * getattr(world, "gather_mult", 1.0)))
         dmg_mult = getattr(world, "damage_mult", 1.0)
         dmg_lo, dmg_hi, dmg_wp = round(8 * dmg_mult), round(14 * dmg_mult), round(10 * dmg_mult)
+        night_bonus = "，夜晚偷袭+3" if night else ""
 
         # user 消息按「最稳定 → 最易变」排序，让 DeepSeek 前缀缓存命中率最大化：
         # 1) 世界规则（难度参数不变时完全稳定）
@@ -165,8 +166,8 @@ class Agent:
             "【世界规则】",
             f"- 每回合你必须且只能执行一个行动。回合不断循环：每回合能量自动-{drain:g}；能量归零后每回合生命-{hp_drain:g}。",
             f"- 🍞 吃食物：生命+12。😴 休息：能量+20。采集：草地{grass_rate}%捡到食物，森林{forest_rate}%找到野果，f/o 矿脉直接采集（矿脉会耗尽）。",
-            f"- ⚔️ 攻击：消耗5能量，伤害{dmg_lo}-{dmg_hi}（有武器+{dmg_wp}），会结仇，被打的人会记住你。武器有耐久，用多了会碎。",
-            f"- ⛏️ 3块矿石可打造武器（攻击+{dmg_wp}）。你可以和其他人交易食物/矿石。",
+            f"- ⚔️ 攻击：消耗5能量，伤害{dmg_lo}-{dmg_hi}（有武器+{dmg_wp}{night_bonus}），会结仇，被打的人会记住你。武器有耐久，用多了会碎。",
+            f"- ⛏️ 3块矿石可打造武器（攻击+{dmg_wp}）。你可以和其他人交易食物/矿石，也可以单方面赠送给4格内的人以拉拢关系。",
             "- 你只能看到视野内的人，看不到的人也无法 inspect；距离你4格内的人说话你能听到；全场大喊也能听到（但会暴露你的位置）。",
             "- 你的选择完全自由：和平共处、结盟、垄断资源、见人就打、背后偷袭……都行。用工具执行行动；拿不定主意就用 wait。",
             "",

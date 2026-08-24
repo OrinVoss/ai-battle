@@ -119,6 +119,27 @@ async def llm_act(client, model, messages, tools, temperature=0.9, max_tokens=90
     return None, {}, _trim_think(content or reasoning), usage
 
 
+async def llm_chat(client, model, messages, temperature=0.9, max_tokens=200, thinking=None):
+    """通用聊天调用，返回 (content_text, usage)。
+
+    用于解说员、反思等非工具场景。调用失败直接抛出异常，由调用方决定是否静默。
+    """
+    kwargs = dict(model=model, messages=messages, temperature=temperature, max_tokens=max_tokens)
+    if thinking is not None:
+        kwargs["extra_body"] = {"thinking": {"type": thinking}}
+    resp = await client.chat.completions.create(**kwargs)
+    usage = None
+    u = getattr(resp, "usage", None)
+    if u is not None:
+        usage = {
+            "prompt": getattr(u, "prompt_tokens", 0) or 0,
+            "completion": getattr(u, "completion_tokens", 0) or 0,
+        }
+    msg = resp.choices[0].message
+    text = (getattr(msg, "content", None) or "").strip()
+    return text, usage
+
+
 # ---------------------------------------------------------------------------
 # 演示模式：没有 API Key 时，用规则 AI 模拟代理行为，方便先看整体效果
 # ---------------------------------------------------------------------------

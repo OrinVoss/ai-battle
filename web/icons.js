@@ -45,6 +45,7 @@ const ICON_PATHS = {
   move: ["M4.5 12h15", "M13.5 6l6 6-6 6"],
   box: ["M4 8l8-4.2L20 8v8l-8 4.2L4 16z", "M4 8l8 4 8-4", "M12 12v8.2"],
   hash: ["M9.5 3.5 7.5 20.5", "M16.5 3.5l-2 17", "M4.5 8.5h16", "M3.5 15.5h16"],
+  volume: ["M11 5v14l-4-4H3V9h4z", "M15.5 9.5a4 4 0 0 1 0 5", "M19 6a8 8 0 0 1 0 12"],
 };
 
 /* config 里选手 emoji -> 头像图标映射；未知 emoji 用 robot 兜底 */
@@ -60,6 +61,18 @@ const AVATAR_ICONS = {
 function avatarIconName(emoji) {
   return AVATAR_ICONS[String(emoji == null ? "" : emoji).trim()] || "robot";
 }
+
+/* 设置面板头像选择器：把 emoji->icon 映射表反转为 {emoji, iconName} 数组，
+   保留 emoji 变体选择器的多个入口，但图标不重复。 */
+const AVATAR_CHOICES = [];
+(function buildAvatarChoices() {
+  const seen = new Set();
+  for (const [emoji, name] of Object.entries(AVATAR_ICONS)) {
+    if (seen.has(name)) continue;
+    seen.add(name);
+    AVATAR_CHOICES.push({ emoji, iconName: name });
+  }
+})();
 
 /* 返回内联 SVG 字符串；size 传像素数，颜色继承 currentColor */
 function icon(name, size = 16) {

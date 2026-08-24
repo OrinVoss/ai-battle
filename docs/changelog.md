@@ -220,6 +220,43 @@ v2 在 v1 的基础上把「生存沙盒」做成了可长期运行、可复盘�
 
 ---
 
+## 🆕 新增功能（本次迭代）
+
+### 1. 赠送工具 `give`
+
+- 可单方面把 food/ore 赠送给 4 格内其他存活代理，受赠者对赠送者关系 +2。
+- 相关代码：`tools.py`、`agent.py`、`engine.py`。
+- 详细说明 → [tools.md#give--赠送](tools.md#give--赠送)
+
+### 2. 夜晚偷袭加成
+
+- 夜晚攻击在 `damage_mult` 后再 +3，日志与反馈均标注「夜晚偷袭+3」。
+- 感知规则段夜晚时动态提示该加成。
+- 相关代码：`tools.py`、`agent.py`。
+- 详细说明 → [tools.md#attack--攻击](tools.md#attack--攻击)、[usage.md#攻击与关系](usage.md#攻击与关系)
+
+### 3. AI 解说员
+
+- 每 `commentary_interval` 回合（默认 5）非阻塞调用 LLM 生成局势点评，以 `kind=commentary` 广播。
+- 前端新增「📣 解说」滚动条与 🔊 浏览器语音开关。
+- 演示模式自动关闭；可在 `config.json` 顶层配置 `commentator` 节指定 provider/model。
+- 相关代码：`engine.py`、`llm.py`、`web/app.js`、`web/icons.js`、`web/index.html`、`web/style.css`。
+- 详细说明 → [config.md#解说员专属配置-commentator](config.md#解说员专属配置-commentator)、[usage.md#解说滚动条与语音开关](usage.md#解说滚动条与语音开关)
+
+### 4. 定期反思
+
+- 每 `reflect_interval` 回合（默认 10）为每个有真实模型的存活代理生成一句反思，写入 `notes` 并以 `think` 日志广播。
+- 失败静默，演示模式跳过。
+- 相关代码：`engine.py`、`llm.py`。
+
+### 5. 设置面板头像选择器
+
+- emoji 输入改为 SVG 头像按钮 + 自定义 emoji 文本框，选中头像高亮，协议仍存 emoji。
+- 相关代码：`web/icons.js`（导出 `AVATAR_CHOICES`）、`web/app.js`、`web/style.css`。
+- 详细说明 → [usage.md#开局设置](usage.md#开局设置)
+
+---
+
 ## 📁 目录变化
 
 v2 新增/变化：

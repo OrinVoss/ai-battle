@@ -7,7 +7,7 @@ import random
 from datetime import datetime
 
 from agent import Agent
-from llm import ProviderError, build_client, demo_decide, llm_act
+from llm import ProviderError, build_client, demo_decide, llm_act, llm_chat
 from world import World
 import tools
 
@@ -34,6 +34,7 @@ CANNED_THINKING = {
     "inspect": "先观察对方虚实",
     "loot": "搜刮战利品，壮大自己",
     "craft": "把矿石打造成武器",
+    "give": "送点资源拉拢人心",
     "propose_trade": "谈笔买卖，各取所需",
     "accept_trade": "这买卖划算，成交",
     "decline_trade": "这条件不值，拒绝",
@@ -64,6 +65,12 @@ class Engine:
         self.log_path = None
         self.log_dir = LOG_DIR  # 比赛日志目录（测试可改指临时目录）
         self.config_path = os.path.join(BASE, "config.json")  # 保存 setup 时写回这里（测试可改指临时文件）
+        # 解说员 / 反思的非阻塞任务句柄
+        self._commentary_task = None
+        self._reflection_task = None
+        self._commentary_client = None
+        self._commentary_model = None
+        self._commentary_provider_name = None
         self.reset()
 
     # ---------- 复盘录制 ----------
@@ -163,6 +170,7 @@ class Engine:
             except ProviderError:
                 self.clients[a.name] = None
         self.demo_mode = demo_all
+        self._setup_commentator()
 
         n = len(self.agents)
         self.emit("sys", "🔄 世界已重置，新的生存游戏开始！")
@@ -562,6 +570,149 @@ class Engine:
                 if a.alive:
                     a.add_event(self.turn, f"[世界事件] {msg}")
 
+    # ---------- 解说员 ----------
+    def _setup_commentator(self):
+        """挑选可用的解说员客户端：优先使用 commentator 配置，否则找第一个有 Key 的 provider。"""
+        self._commentary_client = None
+        self._commentary_model = None
+        self._commentary_provider_name = None
+        if self.demo_mode:
+            return  # 演示模式不启用解说
+        cfg = self.config.get("commentator") or {}
+        if cfg.get("provider") and cfg.get("model"):
+            prov = self.config["providers"].get(cfg["provider"], {})
+            try:
+                self._commentary_client = build_client(prov)
+                self._commentary_model = cfg["model"]
+                self._commentary_provider_name = cfg["provider"]
+                return
+            except ProviderError:
+                pass
+        for name, prov in self.config.get("providers", {}).items():
+            try:
+                client = build_client(prov)
+                models = prov.get("models", [])
+                if models:
+                    self._commentary_client = client
+                    self._commentary_model = models[0]
+                    self._commentary_provider_name = name
+                    return
+            except ProviderError:
+                continue
+
+    def _commentary_interval(self):
+        try:
+            v = int(self.config["world"].get("commentary_interval", 5))
+        except (TypeError, ValueError):
+            v = 5
+        return max(0, v)
+
+    def _commentary_log_texts(self):
+        """从最近日志中挑选公开事件，战斗/死亡/交易/结盟/上帝/事件优先，约 20 条。"""
+        priority = {"fight": 4, "death": 4, "trade": 3, "sys": 2, "god": 2, "event": 2}
+        # 排除内心想法和可能重复的 commentary 本身
+        candidates = [
+            e for e in self.history
+            if e["kind"] not in ("think", "commentary")
+        ]
+        # 按优先级 + 时间近排序（越近越靠前）
+        scored = [
+            (priority.get(e["kind"], 1), e["turn"], e)
+            for e in candidates[-80:]
+        ]
+        scored.sort(key=lambda x: (x[0], x[1]), reverse=True)
+        selected = [x[2] for x in scored[:20]]
+        # 返回按回合先后排序的文本
+        selected.sort(key=lambda e: e["turn"])
+        return [f"[T{e['turn']}] [{e['kind']}] {e['text']}" for e in selected]
+
+    def _maybe_commentary(self):
+        """每 N 回合触发一次非阻塞解说；最多一个解说任务在跑。"""
+        interval = self._commentary_interval()
+        if interval <= 0 or self.turn <= 0 or self.turn % interval != 0:
+            return
+        if self._commentary_client is None:
+            return
+        if self._commentary_task is not None and not self._commentary_task.done():
+            return
+        logs = self._commentary_log_texts()
+        self._commentary_task = asyncio.create_task(self._generate_commentary(logs))
+
+    async def _generate_commentary(self, logs):
+        try:
+            system = (
+                "你是一名激情的电竞解说员。请根据下面最近发生的公开事件，"
+                "用 1-2 句中文点评当前局势，口语化、有梗，但**不要剧透**任何上帝私聊内容。"
+                "只输出解说文本，不要 JSON、不要动作名。"
+            )
+            user = "最近发生的公开事件：\n" + ("\n".join(logs) if logs else "（暂无大事）")
+            text, _usage = await llm_chat(
+                self._commentary_client, self._commentary_model,
+                [{"role": "system", "content": system}, {"role": "user", "content": user}],
+                temperature=0.9, max_tokens=200,
+            )
+            if text:
+                self.emit("commentary", f"📣 解说：{text}")
+        except Exception:
+            # 解说失败静默跳过，不影响主循环
+            pass
+
+    # ---------- 定期反思 ----------
+    def _reflect_interval(self):
+        try:
+            v = int(self.config["world"].get("reflect_interval", 10))
+        except (TypeError, ValueError):
+            v = 10
+        return max(0, v)
+
+    def _maybe_reflect(self):
+        """每 M 回合为每个有真实模型的存活代理触发一次非阻塞反思。"""
+        interval = self._reflect_interval()
+        if interval <= 0 or self.turn <= 0 or self.turn % interval != 0:
+            return
+        if self.demo_mode:
+            return
+        if self._reflection_task is not None and not self._reflection_task.done():
+            return
+        agents = [a for a in self.agents if a.alive and self.clients.get(a.name)]
+        if not agents:
+            return
+        self._reflection_task = asyncio.create_task(self._run_reflections(agents))
+
+    async def _run_reflections(self, agents):
+        async def reflect_one(a):
+            try:
+                mem = "\n".join(list(a.memory)[-12:]) or "（暂无）"
+                notes = "；".join(a.notes) or "无"
+                rels = a.relation_str(self.world)
+                system = (
+                    "你是这名选手本人，正在进行回合间歇的快速反思。"
+                    "结合你的最近见闻、长期笔记、与其他人的关系和当前状态，"
+                    "用一句话总结当前局势和接下来的打算。只输出这一句话。"
+                )
+                user = (
+                    f"【最近见闻】\n{mem}\n\n"
+                    f"【长期笔记】{notes}\n\n"
+                    f"【关系】{rels}\n\n"
+                    f"【状态】HP {a.hp}/100，能量 {a.energy}/100，"
+                    f"食物 {a.items['food']}，矿石 {a.items['ore']}，"
+                    f"武器{'有' if a.weapon else '无'}"
+                )
+                text, _usage = await llm_chat(
+                    self.clients[a.name], a.model,
+                    [{"role": "system", "content": system}, {"role": "user", "content": user}],
+                    temperature=0.8, max_tokens=120,
+                )
+                if text:
+                    a.notes.append(f"[反思] {text}")
+                    if len(a.notes) > 10:
+                        a.notes.pop(0)
+                    self.emit("think", f"🧠 {a.name} 反思：{text}")
+            except Exception:
+                pass
+
+        await asyncio.gather(*(reflect_one(a) for a in agents), return_exceptions=True)
+
     # ---------- 主循环 ----------
     async def loop(self):
         while True:
@@ -705,3 +856,7 @@ class Engine:
                 f"===== 本局结束：{'胜者 ' + self.winner if self.winner else '全员覆灭'}，共 {self.turn} 回合 ====="
             )
             self.update_stats()
+
+        # 解说员与定期反思：非阻塞，失败静默，不占用回合
+        self._maybe_commentary()
+        self._maybe_reflect()

@@ -280,6 +280,17 @@ if len(alive_now) <= 1:
     self.update_stats()
 ```
 
+### 阶段 8：解说与反思（非阻塞）
+
+回合结算后、快照前，引擎会按配置触发两个可选的后台任务：
+
+1. **AI 解说员**：每 `commentary_interval` 回合（默认 5，0=关闭），从最近公开日志中挑选战斗/死亡/交易/结盟/上帝/事件类记录，调用一个独立 LLM 生成 1-2 句中文点评，以 `kind=commentary` 广播。演示模式自动关闭。
+2. **定期反思**：每 `reflect_interval` 回合（默认 10，0=关闭），为每个有真实模型的存活代理调用其自身模型，要求用一句话总结局势与打算；结果以 `[反思] ` 前缀写入 `notes`，并以 `think` 日志广播。演示模式跳过。
+
+两者都通过 `asyncio.create_task` 非阻塞执行，且最多只允许一个同类任务在跑；调用失败静默跳过，不影响主循环。
+
+相关代码：`engine.py:575-710`。
+
 ### 广播流程
 
 - `emit()` 同时做三件事：追加到内存 `history`、写 `.log` 文件、通过 `Hub.send()` 广播（`engine.py:182-191`）。
@@ -426,9 +437,9 @@ cm = max(0, usage["prompt"] - ch)
 
 ### Schema 定义
 
-`tools.TOOL_SCHEMAS`（`tools.py:7-26`）是一个 OpenAI function calling 格式的 schema 列表，共 18 个工具：
+`tools.TOOL_SCHEMAS`（`tools.py:7-26`）是一个 OpenAI function calling 格式的 schema 列表，共 19 个工具：
 
-`move`、`gather`、`rest`、`eat`、`attack`、`talk`、`shout`、`whisper`、`inspect`、`loot`、`craft`、`propose_trade`、`accept_trade`、`decline_trade`、`remember`、`mark_ally`、`mark_enemy`、`wait`。
+`move`、`gather`、`rest`、`eat`、`attack`、`talk`、`shout`、`whisper`、`inspect`、`loot`、`craft`、`give`、`propose_trade`、`accept_trade`、`decline_trade`、`remember`、`mark_ally`、`mark_enemy`、`wait`。
 
 每个 schema 最后会被注入可选的 `reason` 字段（`tools.py:29-34`）。
 

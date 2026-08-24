@@ -120,6 +120,25 @@ def test_attack_weapon_durability_break():
     assert 100 - b.hp <= 14
 
 
+def test_attack_night_bonus(monkeypatch):
+    w, a, b = pair()
+    w.night = True
+    monkeypatch.setattr(tools.random, "randint", lambda lo, hi: 10)
+    fb, logs = tools.resolve_attack(a, w, {"target": "乙"}, Ctx())
+    # 基础 10，无武器，夜晚 +3，倍率 1.0 → 13
+    assert b.hp == 100 - 13
+    assert "夜晚偷袭+3" in fb
+    assert any("夜晚偷袭+3" in t for _, t in logs)
+
+
+def test_attack_day_no_bonus(monkeypatch):
+    w, a, b = pair()
+    w.night = False
+    monkeypatch.setattr(tools.random, "randint", lambda lo, hi: 10)
+    tools.resolve_attack(a, w, {"target": "乙"}, Ctx())
+    assert b.hp == 100 - 10
+
+
 # ---------- craft ----------
 
 def test_craft_ore_not_enough():
@@ -151,6 +170,45 @@ def test_inspect_vision_limit():
     w.night = True  # 夜晚视野 3 格
     fb, _ = tools.resolve_inspect(a, w, {"target": "乙"}, Ctx())
     assert "看不到" in fb
+
+
+# ---------- 赠送 ----------
+
+def test_give_success_changes_relation():
+    w, a, b = pair()
+    a.items = {"food": 3, "ore": 1}
+    b.items = {"food": 0, "ore": 0}
+    fb, logs = tools.resolve_give(a, w, {"target": "乙", "item": "food", "amount": 2}, Ctx())
+    assert a.items == {"food": 1, "ore": 1}
+    assert b.items == {"food": 2, "ore": 0}
+    assert b.relation.get("甲", 0) == 2
+    assert "送给 乙 2个food" in fb
+    assert any("🎁 甲 送给 乙 2个food" in t for _, t in logs)
+
+
+def test_give_not_enough_items():
+    w, a, b = pair()
+    a.items = {"food": 1, "ore": 0}
+    fb, _ = tools.resolve_give(a, w, {"target": "乙", "item": "food", "amount": 2}, Ctx())
+    assert "food不够" in fb
+    assert a.items == {"food": 1, "ore": 0}
+
+
+def test_give_too_far():
+    w, a, b = pair()
+    b.pos = (7, 7)
+    a.items = {"food": 3, "ore": 0}
+    fb, _ = tools.resolve_give(a, w, {"target": "乙", "item": "food", "amount": 1}, Ctx())
+    assert "太远" in fb
+    assert a.items["food"] == 3
+
+
+def test_give_self_rejected():
+    w, a, _ = pair()
+    a.items = {"food": 3, "ore": 0}
+    fb, _ = tools.resolve_give(a, w, {"target": "甲", "item": "food", "amount": 1}, Ctx())
+    assert "不存在" in fb or "对象不存在" in fb
+    assert a.items["food"] == 3
 
 
 # ---------- 交易全流程 ----------

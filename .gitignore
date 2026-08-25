@@ -5,3 +5,4 @@ replays/
 logs/
 stats.json
 config.json
+.idea/

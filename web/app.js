@@ -878,26 +878,50 @@ function drawRelations() {
     const ang = -Math.PI / 2 + (i * 2 * Math.PI) / n;
     return [cx + R * Math.cos(ang), cy + R * Math.sin(ang)];
   });
-  // 连线：|score|>=3 才画，取双向中绝对值较大的一边
+  // 连线：|score|>=3 才画；取感受更强的一边为主方向，箭头指向被评价的一方
   for (let i = 0; i < n; i++) {
     for (let j = i + 1; j < n; j++) {
       const a = agents[i], b = agents[j];
       const s1 = (a.relations || {})[b.name] || 0;
       const s2 = (b.relations || {})[a.name] || 0;
-      const sc = Math.abs(s1) >= Math.abs(s2) ? s1 : s2;
+      const [sc, from, to] = Math.abs(s1) >= Math.abs(s2) ? [s1, pos[i], pos[j]] : [s2, pos[j], pos[i]];
       if (Math.abs(sc) < 3) continue;
       const color = sc >= 3 ? "#7bb661" : "#e05b5b";
+      const [x1, y1] = pos[i], [x2, y2] = pos[j];
+      ctx.globalAlpha = 0.8;
       ctx.strokeStyle = color;
       ctx.lineWidth = Math.min(5, 1 + Math.abs(sc) / 3);
       ctx.beginPath();
-      ctx.moveTo(pos[i][0], pos[i][1]);
-      ctx.lineTo(pos[j][0], pos[j][1]);
+      ctx.moveTo(x1, y1);
+      ctx.lineTo(x2, y2);
+      ctx.stroke();
+      // 箭头：指向被评价的一方（主方向 = 谁对谁的感受）
+      const ang = Math.atan2(to[1] - from[1], to[0] - from[0]);
+      const ax = from[0] + (to[0] - from[0]) * 0.7, ay = from[1] + (to[1] - from[1]) * 0.7;
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.moveTo(ax + 9 * Math.cos(ang), ay + 9 * Math.sin(ang));
+      ctx.lineTo(ax + 6 * Math.cos(ang + 2.6), ay + 6 * Math.sin(ang + 2.6));
+      ctx.lineTo(ax + 6 * Math.cos(ang - 2.6), ay + 6 * Math.sin(ang - 2.6));
+      ctx.closePath();
+      ctx.fill();
+      // 分数标签：深色药丸底 + 同色描边，压线也清晰
+      const mx = (x1 + x2) / 2, my = (y1 + y2) / 2;
+      const label = sc > 0 ? "+" + sc : String(sc);
+      ctx.font = "bold 11px sans-serif";
+      const tw = ctx.measureText(label).width + 12;
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = "rgba(10, 13, 19, .9)";
+      rr(ctx, mx - tw / 2, my - 8, tw, 16, 8);
+      ctx.fill();
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 1;
+      rr(ctx, mx - tw / 2, my - 8, tw, 16, 8);
       ctx.stroke();
       ctx.fillStyle = color;
-      ctx.font = "bold 12px sans-serif";
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
-      ctx.fillText(sc > 0 ? "+" + sc : String(sc), (pos[i][0] + pos[j][0]) / 2, (pos[i][1] + pos[j][1]) / 2);
+      ctx.fillText(label, mx, my);
     }
   }
   // 节点：头像图标 + 名字，死者置灰

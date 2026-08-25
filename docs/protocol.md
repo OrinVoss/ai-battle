@@ -2,11 +2,13 @@
 
 本文档描述前后端通信协议：WebSocket 消息、HTTP API、文件格式。目标是让只读文档的开发者能独立实现客户端或扩展服务端。
 
+> 本文档示例中的角色名（陈默、白夜、陛下等）仅用于演示消息格式，当前默认阵容请见 `config.example.json`。
+
 ---
 
 ## 🔌 WebSocket
 
-连接地址：`ws://host:port/ws`（`main.py:63`）。
+连接地址：`ws://host:port/ws`（`main.py:67`）。
 
 连接建立后，服务端会依次发送：
 
@@ -25,7 +27,7 @@
 ```
 
 - 行为：若当前未分胜负，设置 `running=True` 并广播 `status`。
-- 边界：若 `winner is not None`，拒绝重复结算，返回 `status` 时 `running=False`（`main.py:78-83`）。
+- 边界：若 `winner is not None`，拒绝重复结算，返回 `status` 时 `running=False`（`main.py:82-88`）。
 
 ##### `pause`
 
@@ -43,7 +45,7 @@
 ```
 
 - 行为：推进一个完整回合，然后自动暂停。
-- 边界：已分胜负时无效（`main.py:88-94`）。
+- 边界：已分胜负时无效（`main.py:92-98`）。
 
 ##### `reset`
 
@@ -61,7 +63,7 @@
 ```
 
 - 行为：设置 `engine.speed = value`。
-- 范围：0.1~5.0；非法值会被忽略（`main.py:101-105`）。
+- 范围：0.1~5.0；非法值会被忽略（`main.py:105-109`）。
 
 #### 2. 开局设置 `setup` / `setup_save`
 
@@ -107,7 +109,7 @@
 ```
 
 - 行为：先原子写回 `config.json`，写成功后再执行与 `setup` 相同的应用逻辑。
-- 关键：写文件失败则整体不生效（`engine.py:370-402`）。
+- 关键：写文件失败则整体不生效（`engine.py:373-395`）。
 
 #### 3. 上帝传话 `god_msg`
 
@@ -144,7 +146,7 @@
 ```
 
 - 行为：等效于 `targets: "all"`、`sow: false`，调用 `god_say()`。
-- 与 `god_msg` 的区别：这是更简单的广播接口（`main.py:131-134`）。
+- 与 `god_msg` 的区别：这是更简单的广播接口（`main.py:128-134`）。
 
 ---
 
@@ -519,7 +521,7 @@ Content-Type: application/json
 - `logs` 保持人类可读的文本行不变，供前端和日志文件直接展示。
 - `events` 为每条日志追加结构化字段后的完整数组，供程序化消费；字段规则与 WebSocket `log` 消息一致。
 
-实现见 `engine.py:601-660`、`main.py:141-147`。
+实现见 `engine.py:628-687`、`main.py:145-151`。
 
 ### GET /api/setup
 
@@ -563,7 +565,7 @@ GET /api/setup HTTP/1.1
 }
 ```
 
-实现见 `main.py:150-160`。
+实现见 `main.py:154-168`。
 
 ### GET /api/stats
 
@@ -601,7 +603,7 @@ GET /api/stats HTTP/1.1
 ```
 
 - 若 `stats.json` 不存在或读取失败，返回 `{}`。
-- 实现见 `main.py:164-173`。
+- 实现见 `main.py:171-180`。
 
 ### GET /api/replays
 
@@ -624,7 +626,7 @@ GET /api/replays HTTP/1.1
 
 - 只返回 `.jsonl` 文件。
 - 若 `replays/` 目录不存在，返回 `[]`。
-- 实现见 `main.py:176-191`。
+- 实现见 `main.py:183-198`。
 
 ### GET /api/replays/{name}
 
@@ -652,7 +654,7 @@ Content-Type: text/plain; charset=utf-8
 | 路径穿越（如 `../config.json`） | 404 | `{"detail":"回放不存在"}` |
 | 文件不存在 | 404 | `{"detail":"回放不存在"}` |
 
-校验逻辑见 `main.py:194-202`。
+校验逻辑见 `main.py:201-209`。
 
 ---
 
@@ -748,4 +750,4 @@ Content-Type: text/plain; charset=utf-8
 2. 服务端发送 `status`。
 3. 服务端按顺序补发内存中最近最多 800 条 `log`。
 
-实现见 `main.py:65-71`。
+实现见 `main.py:67-75`。

@@ -3,6 +3,8 @@
 `config.json` 是项目唯一的运行时配置文件，包含世界参数、provider 接入信息、选手人设。服务器启动时读取一次（`main.py:15-17`），之后可以通过前端「开局设置」面板在线修改内存配置，或「保存到文件」写回磁盘。
 
 > 文件路径：`D:/桌面/编程作品/ai大战-v2/config.json`
+>
+> 下文 `agents` 示例中若出现「陈默 / 白夜 / 陛下」等旧名字，仅用于演示字段格式；当前默认阵容见 `config.example.json`（屠夫 / 疯狗 / 毒蛇 / 暴君 / 军阀 / 血鸦）。
 
 ---
 
@@ -31,15 +33,15 @@
 | `width` | int | 否 | 20 | ≥2 | 地图宽度（格子数）（`world.py:11`） |
 | `height` | int | 否 | 16 | ≥2 | 地图高度（格子数）（`world.py:12`） |
 | `seed` | int / null | 否 | null | 任意整数或 null | 随机种子；为 null 时每次生成不同地图（`world.py:14`） |
-| `turns_per_second` | float | 否 | 0.6 | >0 | 默认运行速度（`engine.py:69`） |
-| `energy_drain` | float | 否 | 2 | 0~5 | 每回合能量消耗（`engine.py:295`） |
-| `hp_drain` | float | 否 | 3 | 0~10 | 能量归零后每回合生命损耗（`engine.py:296`） |
-| `damage_mult` | float | 否 | 1.0 | 0.5~2.0 | 攻击伤害倍率（`engine.py:297`） |
-| `event_prob` | float | 否 | 0.08 | 0~0.3 | 世界事件触发概率（`engine.py:298`） |
-| `gather_mult` | float | 否 | 1.0 | 0.5~2.0 | 采集成功率倍率（`engine.py:299`） |
-| `commentary_interval` | int | 否 | 5 | 0 或 ≥1 | 每 N 回合触发一次 AI 解说（0=关闭）（`engine.py:763`） |
-| `reflect_interval` | int | 否 | 10 | 0 或 ≥1 | 每 M 回合触发一次代理反思（0=关闭）（`engine.py:878`） |
-| `max_turns` | int | 否 | 300 | 0 或 ≥1 | 回合上限，达到后强制评分结算（0=无上限）（`engine.py:310`） |
+| `turns_per_second` | float | 否 | 0.6 | >0 | 默认运行速度（`engine.py:93`） |
+| `energy_drain` | float | 否 | 2 | 0~5 | 每回合能量消耗（`engine.py:321`） |
+| `hp_drain` | float | 否 | 3 | 0~10 | 能量归零后每回合生命损耗（`engine.py:322`） |
+| `damage_mult` | float | 否 | 1.0 | 0.5~2.0 | 攻击伤害倍率（`engine.py:323`） |
+| `event_prob` | float | 否 | 0.08 | 0~0.3 | 世界事件触发概率（`engine.py:324`） |
+| `gather_mult` | float | 否 | 1.0 | 0.5~2.0 | 采集成功率倍率（`engine.py:325`） |
+| `commentary_interval` | int | 否 | 5 | 0 或 ≥1 | 每 N 回合触发一次 AI 解说（0=关闭）（`engine.py:790`） |
+| `reflect_interval` | int | 否 | 10 | 0 或 ≥1 | 每 M 回合触发一次代理反思（0=关闭）（`engine.py:905`） |
+| `max_turns` | int | 否 | 300（代码默认）；`config.example.json` 已设为 200 | 0 或 ≥1 | 回合上限，达到后强制评分结算（0=无上限）（`engine.py:337-343`） |
 
 ### 字段详解
 
@@ -58,7 +60,7 @@
 #### `turns_per_second`
 
 - 控制连续运行时每回合之间的间隔。
-- 实际间隔 = `1.0 / speed` 秒（`engine.py:939`）。
+- 实际间隔 = `1.0 / speed` 秒（`engine.py:968`）。
 - 运行时可通过前端速度滑块实时修改。
 
 #### `energy_drain`
@@ -109,11 +111,11 @@
 | `event_prob` | 世界更动荡，随机性更强 |
 | `gather_mult` | 资源更充裕，囤积型选手更强 |
 
-难度参数在 `world.py:24-32` 和 `engine.py:294-302` 中均被钳位到合法范围，手写越界值不会崩溃。
+难度参数在 `world.py:24-32` 和 `engine.py:321-327` 中均被钳位到合法范围，手写越界值不会崩溃。
 
 #### `max_turns`
 
-- 控制单局最多回合数。默认 `300`，设为 `0` 表示无上限。
+- 控制单局最多回合数。代码默认 `300`，`config.example.json` 中已设为 `200`；设为 `0` 表示无上限。
 - 达到上限且场上仍有 2 人及以上存活时，强制进入「评分结算」：按 `存活 > 击杀 > 资源分` 排序，第一名获胜。
 - 该值只影响内存中的当前配置；前端「保存到文件」不会把它写回 `config.json`。
 - 详情见 [usage.md#结局规则](usage.md#结局规则) 与 [technical.md#评分与称号](technical.md#评分与称号)。
@@ -140,12 +142,12 @@
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
 | `name` | string | 否 | 显示名称（`main.py:155`） |
-| `base_url` | string | 是 | OpenAI 兼容接口地址（`llm.py:28-30`） |
-| `api_key` | string | 否 | 直接写 key；为空时尝试读 `env_key` 环境变量（`llm.py:17-27`） |
-| `env_key` | string | 否 | 环境变量名（`llm.py:21-22`） |
-| `thinking` | string | 否 | `"enabled"` / `"disabled"`，控制 DeepSeek 思考模式（`llm.py:79-80`） |
-| `price_input` | float | 否 | 每百万 prompt token 单价（元），用于费用估算（`engine.py:411`） |
-| `price_output` | float | 否 | 每百万 completion token 单价（元）（`engine.py:411`） |
+| `base_url` | string | 是 | OpenAI 兼容接口地址（`llm.py:50-52`） |
+| `api_key` | string | 否 | 直接写 key；为空时尝试读 `env_key` 环境变量（`llm.py:39-52`） |
+| `env_key` | string | 否 | 环境变量名（`llm.py:43-44`） |
+| `thinking` | string | 否 | `"enabled"` / `"disabled"`，控制 DeepSeek 思考模式（`llm.py:101-102`） |
+| `price_input` | float | 否 | 每百万 prompt token 单价（元），用于费用估算（`engine.py:440`） |
+| `price_output` | float | 否 | 每百万 completion token 单价（元）（`engine.py:440`） |
 | `models` | string[] | 否 | 该 provider 提供的模型列表，供前端下拉框使用（`main.py:155`） |
 
 ### 解说员专属配置 `commentator`
@@ -178,7 +180,7 @@
 
 #### `api_key` 与 `env_key`
 
-读取优先级（`llm.py:17-27`）：
+读取优先级（`llm.py:39-52`）：
 
 1. 若 `api_key` 是非空字符串，直接使用。
 2. 否则若 `env_key` 存在，读取该环境变量。
@@ -194,7 +196,7 @@
 #### `price_input` / `price_output`
 
 - 单位：元 / 百万 token。
-- 用于前端费用显示：`cost = (prompt × price_input + completion × price_output) / 1_000_000`（`engine.py:414`）。
+- 用于前端费用显示：`cost = (prompt × price_input + completion × price_output) / 1_000_000`（`engine.py:441`）。
 - 未配时显示「费用未知」。
 
 #### `models`
@@ -251,7 +253,7 @@ set EXAMPLE_API_KEY=sk-your-key-here
 
 ## 🤖 agents 节
 
-`agents` 是选手数组，至少 2 人（`engine.py:277-291`）。每个选手对象：
+`agents` 是选手数组，至少 2 人（`engine.py:304-318`）。每个选手对象：
 
 ```json
 {
@@ -274,11 +276,11 @@ set EXAMPLE_API_KEY=sk-your-key-here
 
 | 字段 | 类型 | 必填 | 默认值 | 限制 | 说明 |
 |------|------|------|--------|------|------|
-| `name` | string | 是 | — | 2~20 字符 | 选手名字，唯一标识（`engine.py:328`） |
-| `emoji` | string | 否 | 🤖 | 最长 4 字符 | 头像映射键（`engine.py:329`） |
-| `role` | string | 否 | 幸存者 | 最长 20 字符 | 角色名（`engine.py:330`） |
-| `provider` | string | 是 | — | — | 引用 `providers` 中的键（`engine.py:331`） |
-| `model` | string | 是 | — | — | 该 provider 下的模型名（`engine.py:332`） |
+| `name` | string | 是 | — | 2~20 字符 | 选手名字，唯一标识（`engine.py:361`） |
+| `emoji` | string | 否 | 🤖 | 最长 4 字符 | 头像映射键（`engine.py:362`） |
+| `role` | string | 否 | 幸存者 | 最长 20 字符 | 角色名（`engine.py:363`） |
+| `provider` | string | 是 | — | — | 引用 `providers` 中的键（`engine.py:364`） |
+| `model` | string | 是 | — | — | 该 provider 下的模型名（`engine.py:365`） |
 | `backstory` | string | 否 | 空 | 最长 500 字符 | 人物背景（`agent.py:14`、`agent.py:106`） |
 | `personality` | string | 否 | 空 | 最长 500 字符 | 性格描述（`agent.py:15`、`agent.py:107`） |
 | `strategy` | string | 否 | 空 | 最长 500 字符 | 处世策略（`agent.py:26`、`agent.py:108`） |
@@ -289,7 +291,7 @@ set EXAMPLE_API_KEY=sk-your-key-here
 #### `name`
 
 - 唯一标识一名选手。
-- 不能与其他选手重名，否则 `apply_setup` 拒绝（`engine.py:282-284`）。
+- 不能与其他选手重名，否则 `apply_setup` 拒绝（`engine.py:309-317`）。
 - 会出现在日志、关系图、排行榜（键为 `name|model`）。
 
 #### `emoji`
@@ -308,8 +310,8 @@ set EXAMPLE_API_KEY=sk-your-key-here
 
 | 特质 | 含义 | 演示模式作用 | 提示词作用 |
 |------|------|--------------|------------|
-| `aggression` | 攻击性 | 高攻击更可能主动攻击附近目标（`llm.py:155`、`llm.py:176`） | 写入 system prompt，模型参考 |
-| `sociability` | 社交性 | 高社交更可能发起交易、说话（`llm.py:179`、`llm.py:189`） | 写入 system prompt，模型参考 |
+| `aggression` | 攻击性 | 高攻击更可能主动攻击附近目标（`llm.py:226`、`llm.py:248`） | 写入 system prompt，模型参考 |
+| `sociability` | 社交性 | 高社交更可能发起交易、说话（`llm.py:250`、`llm.py:260`） | 写入 system prompt，模型参考 |
 | `greed` | 贪婪 | 影响对资源的重视程度 | 写入 system prompt，模型参考 |
 | `paranoia` | 多疑 | 影响对威胁的判断 | 写入 system prompt，模型参考 |
 
@@ -383,11 +385,11 @@ set EXAMPLE_API_KEY=sk-your-key-here
 
 ### 设置保存行为
 
-前端「保存到文件」只替换 `agents` 和 `world` 下的难度键，其余内容（包括 `providers` 里的 `api_key`）原样保留（`engine.py:370-402`）。
+前端「保存到文件」只替换 `agents` 和 `world` 下的难度键，其余内容（包括 `providers` 里的 `api_key`）原样保留（`engine.py:373-395`）。
 
 ### 导出安全
 
-`export_data()` 会导出选手终态与日志，但绝不包含 `api_key`（`engine.py:601-660`）。
+`export_data()` 会导出选手终态与日志，但绝不包含 `api_key`（`engine.py:628-687`）。
 
 ### HTTP API 不暴露 Key
 

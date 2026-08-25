@@ -2,6 +2,8 @@
 
 本文档面向开发者与深度用户，涵盖系统架构、主循环、提示词工程、工具系统、世界生成、战绩结算、前端渲染管线与设计决策。阅读后应能在不反复翻源码的情况下理解系统全貌，并能安全地新增工具、调整配置或扩展前端。
 
+> 下文示例中的角色名（陈默、白夜、陛下等）仅用于演示提示词与消息格式，当前默认阵容请见 `config.example.json`。
+
 ---
 
 ## 🏗 架构总览
@@ -52,7 +54,7 @@
 
 ## 🧱 关键类与字段
 
-### `Engine`（`engine.py:65-1118`）
+### `Engine`（`engine.py:89-1145`）
 
 `Engine` 是整个后端的控制中心，持有世界、选手、客户端、日志、回放等全部状态。
 
@@ -82,7 +84,7 @@
 | `rain` | bool | 本回合是否暴雨 |
 | `harvest_until` | int | 丰收季持续到的回合数（含） |
 
-### `Agent`（`agent.py:6-181`）
+### `Agent`（`agent.py:6-192`）
 
 每个选手对应一个 `Agent` 实例，保存状态、记忆、关系、感知逻辑。
 
@@ -135,7 +137,7 @@
 | `energy_drain` | float | 每回合能量消耗（仅提示词用） |
 | `hp_drain` | float | 能量归零后生命损耗（仅提示词用） |
 
-### `TurnCtx`（`engine.py:56-63`）
+### `TurnCtx`（`engine.py:80-87`）
 
 轻量级上下文对象，每个回合创建一个，用于统一日志：
 
@@ -162,7 +164,7 @@ class TurnCtx:
 3. 在 FastAPI lifespan 中启动 `engine.loop()` 后台任务。
 4. 服务器关闭时取消该任务。
 
-`Engine.reset()` 初始化流程（`engine.py:153-203`）：
+`Engine.reset()` 初始化流程（`engine.py:177-221`）：
 
 1. `self.world = World(self.config)` 生成地图。
 2. `self.world.spawn_points(n)` 获取不重复出生点。
@@ -175,7 +177,7 @@ class TurnCtx:
 
 ### 一回合完整时序
 
-`run_turn()`（`engine.py:944-1118`）的完整流程：
+`run_turn()`（`engine.py:971-1145`）的完整流程：
 
 #### 阶段 1：回合准备
 
@@ -290,19 +292,19 @@ if len(alive_now) <= 1:
 
 回合结算后、快照前，引擎会按配置触发三个可选的后台任务：
 
-1. **AI 解说员**：每 `commentary_interval` 回合（默认 5，0=关闭），从最近公开日志中挑选战斗/死亡/交易/结盟/上帝/事件类记录，调用一个独立 LLM 生成 1-2 句中文点评，以 `kind=commentary` 广播。演示模式自动关闭（`engine.py:775-784`）。
-2. **定期反思**：每 `reflect_interval` 回合（默认 10，0=关闭），为每个有真实模型的存活代理调用其自身模型，要求用一句话总结局势与打算；结果以 `[反思] ` 前缀写入 `notes`，并以 `think` 日志广播。演示模式跳过（`engine.py:808-840`）。
-3. **AI 全局复盘**：游戏结束（歼灭或回合上限）后，挑选最近约 100 条公开事件，调用解说员客户端（或第一个可用 provider）生成约 200 字的中文复盘；无可用 Key 时使用模板化降级。结果写入 `match_review`，随 snapshot 携带，并以独立 `type=review` 消息广播，同时以 `kind=review` 进入日志流（`engine.py:846-866`）。
+1. **AI 解说员**：每 `commentary_interval` 回合（默认 5，0=关闭），从最近公开日志中挑选战斗/死亡/交易/结盟/上帝/事件类记录，调用一个独立 LLM 生成 1-2 句中文点评，以 `kind=commentary` 广播。演示模式自动关闭（`engine.py:790-800`）。
+2. **定期反思**：每 `reflect_interval` 回合（默认 10，0=关闭），为每个有真实模型的存活代理调用其自身模型，要求用一句话总结局势与打算；结果以 `[反思] ` 前缀写入 `notes`，并以 `think` 日志广播。演示模式跳过（`engine.py:905-951`）。
+3. **AI 全局复盘**：游戏结束（歼灭或回合上限）后，挑选最近约 100 条公开事件，调用解说员客户端（或第一个可用 provider）生成约 200 字的中文复盘；无可用 Key 时使用模板化降级。结果写入 `match_review`，随 snapshot 携带，并以独立 `type=review` 消息广播，同时以 `kind=review` 进入日志流（`engine.py:873-895`）。
 
 三者都通过 `asyncio.create_task` 非阻塞执行，且最多只允许一个同类任务在跑；调用失败静默跳过，不影响主循环。`reset()` 会取消未完成的复盘任务并清空 `match_review`。
 
-相关代码：`engine.py:775-1118`。
+相关代码：`engine.py:790-1145`。
 
 ### 广播流程
 
-- `emit()` 同时做三件事：追加到内存 `history`、写 `.log` 文件、通过 `Hub.send()` 广播（`engine.py:212-226`）。
-- `Hub.send()` 并行发送给所有连接，失败连接自动剔除（`main.py:27-44`）。
-- 每回合结束发送 `snapshot`（`engine.py:939`）。
+- `emit()` 同时做三件事：追加到内存 `history`、写 `.log` 文件、通过 `Hub.send()` 广播（`engine.py:238-247`）。
+- `Hub.send()` 并行发送给所有连接，失败连接自动剔除（`main.py:27-48`）。
+- 每回合结束发送 `snapshot`（`engine.py:968`）。
 
 ---
 
@@ -310,10 +312,10 @@ if len(alive_now) <= 1:
 
 ### system / user 结构
 
-每次模型调用由两条消息组成（`engine.py:968-971`）：
+每次模型调用由两条消息组成（`engine.py:995-998`）：
 
 - `system`：固定人设模板（`agent.py:104-116`）。
-- `user`：动态世界情报，按稳定性重排（`agent.py:118-181`）。
+- `user`：动态世界情报，按稳定性重排（`agent.py:118-192`）。
 
 ### 真实 system 消息示例
 
@@ -354,19 +356,20 @@ if len(alive_now) <= 1:
 【世界规则】
 - 每回合你必须且只能执行一个行动。回合不断循环：每回合能量自动-2；能量归零后每回合生命-3。
 - 🍞 吃食物：生命+12。😴 休息：能量+20。采集：草地30%捡到食物，森林50%找到野果，f/o 矿脉直接采集（矿脉会耗尽）。
-- ⚔️ 攻击：消耗5能量，伤害8-14（有武器+10），会结仇，被打的人会记住你。武器有耐久，用多了会碎。
-- ⛏️ 3块矿石可打造武器（攻击+10）。你可以和其他人交易食物/矿石。
+- ⚔️ 攻击：消耗5能量，伤害8-14（有武器+10，夜晚偷袭再+3），会结仇，被打的人会记住你。武器有耐久，用多了会碎。
+- ⛏️ 3块矿石可打造武器（攻击+10）。你可以和其他人交易食物/矿石，也可以单方面赠送给4格内的人以拉拢关系。
 - 你只能看到视野内的人，看不到的人也无法 inspect；距离你4格内的人说话你能听到；全场大喊也能听到（但会暴露你的位置）。
 - 你的选择完全自由：和平共处、结盟、垄断资源、见人就打、背后偷袭……都行。用工具执行行动；拿不定主意就用 wait。
+
+【你的长期笔记】无
+【你与所有代理的关系】白夜:中立(+0)；屠夫:中立(+0)；陛下:中立(+0)；松鼠:中立(+0)；藤蔓:中立(+0)
+【待处理交易】无
+【你视野内的人】（视野 6 格）陛下👑(4格)
+【你视野内的尸体】（可移动到同格搜刮）无
 
 【你的状态】
 ❤️ 生命 100/100 | ⚡ 能量 100/100 | 📍 位置 (9,3)
 🍞 食物 x2 | ⛏️ 矿石 x0 | 🗡️ 武器 无
-
-【你与所有代理的关系】白夜:中立(+0)；屠夫:中立(+0)；陛下:中立(+0)；松鼠:中立(+0)；藤蔓:中立(+0)
-【你的长期笔记】无
-【你视野内的人】（视野 6 格）陛下👑(4格)
-【待处理交易】无
 
 【你周围的环境】（5x5，你=你，f=食物矿，o=矿石矿，F=森林，~=水，M=山，?=视野外）
 .MMo.
@@ -381,9 +384,11 @@ FF你.~
 当前：第 1 回合 · 🌞 白天
 ```
 
+> 示例中的角色名为旧版/演示，不代表当前默认阵容；当前默认阵容请见 `config.example.json`。
+
 ### 前缀稳定性重排
 
-为适配 DeepSeek「前缀完整匹配」的硬盘缓存计费，`perceive()` 把 user 消息按「最稳定 → 最易变」排序（`agent.py:148-153`）：
+为适配 DeepSeek「前缀完整匹配」的硬盘缓存计费，`perceive()` 把 user 消息按「最稳定 → 最易变」排序（`agent.py:158-163`）：
 
 | 顺序 | 段落 | 稳定性 | 说明 |
 |------|------|--------|------|
@@ -403,7 +408,7 @@ FF你.~
 
 ### 缓存命中率统计
 
-`llm.py:85-91` 读取响应 `usage`：
+`llm.py:87-113` 读取响应 `usage`：
 
 - `prompt_tokens`
 - `completion_tokens`
@@ -422,7 +427,7 @@ ch = round(len(common) / max(1, len(prompt_text)) * usage["prompt"])
 cm = max(0, usage["prompt"] - ch)
 ```
 
-（`engine.py:961-1008`）
+（`engine.py:1000-1023`）
 
 算法逻辑：
 
@@ -438,7 +443,7 @@ cm = max(0, usage["prompt"] - ch)
 - 不适用于 system 消息变化（如换选手人设）的情况。
 - 对短提示词误差更大。
 
-前端在 `cache_est=True` 时显示 `~缓存 XX%`（`engine.py:426`、`app.js:289`）。
+前端在 `cache_est=True` 时显示 `~缓存 XX%`（`engine.py:453`、`app.js:289`）。
 
 ---
 
@@ -454,7 +459,7 @@ cm = max(0, usage["prompt"] - ch)
 
 ### RESOLVE 注册机制
 
-`tools.RESOLVE`（`tools.py:314-333`）是 `action_name → 结算函数` 的字典。
+`tools.RESOLVE`（`tools.py:412-432`）是 `action_name → 结算函数` 的字典。
 
 新增工具步骤：
 
@@ -476,7 +481,7 @@ cm = max(0, usage["prompt"] - ch)
 - `feedback`：写入该 agent 记忆的文本，前缀为 `[行动结果] ...`。
 - `logs`：每条日志是 `(kind, text)`，会被 `ctx.log(kind, text)` 广播。
 
-若执行过程抛异常，外层会捕获并生成 `(f"行动执行出错：{e}", [])`（`engine.py:1016-1017`）。
+若执行过程抛异常，外层会捕获并生成 `(f"行动执行出错：{e}", [])`（`engine.py:1059-1060`）。
 
 ### 日志 kind 一览表
 
@@ -508,7 +513,7 @@ const KIND_FILTER = {
 
 ### 结算示例
 
-`resolve_attack`（`tools.py:105-132`）：
+`resolve_attack`（`tools.py:126-176`）：
 
 - 校验目标存活、距离 ≤2、自身能量 ≥5。
 - 消耗 5 能量。
@@ -518,7 +523,7 @@ const KIND_FILTER = {
 - 若目标 HP ≤0，死亡，攻击者 kills +1。
 - 返回反馈与日志。
 
-`resolve_propose_trade` / `resolve_accept_trade` / `resolve_decline_trade`（`tools.py:213-281`）：
+`resolve_propose_trade` / `resolve_accept_trade` / `resolve_decline_trade`（`tools.py:302-380`）：
 
 - 提出：距离 ≤4，物品为 food/ore，数量 ≥1，自己有足够出价物，对方无待处理交易。
 - 接受：复核对方存活、距离 ≤4、双方物品充足；成功后物品互换，关系各 +3。
@@ -550,27 +555,27 @@ const KIND_FILTER = {
 - `consume()` 采矿时 +1（`world.py:89`）。
 - `regen()` 有变化时 +1（`world.py:110`）。
 
-引擎通过比较 `world.version != _last_world_version` 决定是否携带完整 `grid` 推送（`engine.py:429-432`）。
+引擎通过比较 `world.version != _last_world_version` 决定是否携带完整 `grid` 推送（`engine.py:456-461`）。
 
 ### 昼夜与事件
 
-- `world.night` 由 engine 每回合维护（`engine.py:963-965`）。
-- `world.harvest` 标志用于丰收季产出翻倍（`engine.py:967`、`tools.py:66`）。
-- 事件触发概率由难度参数 `event_prob` 控制（`engine.py:663`）。
+- `world.night` 由 engine 每回合维护（`engine.py:978-981`）。
+- `world.harvest` 标志用于丰收季产出翻倍（`engine.py:982`、`tools.py:66`）。
+- 事件触发概率由难度参数 `event_prob` 控制（`engine.py:690`）。
 
 ### 难度参数表
 
-`Engine.DIFFICULTY`（`engine.py:294-302`）：
+`Engine.DIFFICULTY`（`engine.py:321-327`）：
 
 | 键 | 默认 | 最小 | 最大 | 作用位置 |
 |----|------|------|------|----------|
-| `energy_drain` | 2 | 0 | 5 | 每回合被动扣能量（`engine.py:1054`） |
-| `hp_drain` | 3 | 0 | 10 | 能量为 0 时扣血（`engine.py:1057`） |
+| `energy_drain` | 2 | 0 | 5 | 每回合被动扣能量（`engine.py:1070`） |
+| `hp_drain` | 3 | 0 | 10 | 能量为 0 时扣血（`engine.py:1077`） |
 | `damage_mult` | 1.0 | 0.5 | 2.0 | 最终伤害乘数（`tools.py:115`） |
-| `event_prob` | 0.08 | 0 | 0.3 | 世界事件触发概率（`engine.py:663`） |
+| `event_prob` | 0.08 | 0 | 0.3 | 世界事件触发概率（`engine.py:690`） |
 | `gather_mult` | 1.0 | 0.5 | 2.0 | 草地/森林采集成功率乘数（`tools.py:67`） |
 
-`max_turns` 单独读取，默认 300、0=无上限（`engine.py:310`）。
+`max_turns` 单独读取，默认 300、0=无上限（`engine.py:337-343`）。
 
 ---
 
@@ -578,11 +583,11 @@ const KIND_FILTER = {
 
 ### 结算时机
 
-一局结束时 `update_stats()` 被调用（`engine.py:1113`），只执行一次（`engine.py:546-550`）。
+一局结束时 `update_stats()` 被调用（`engine.py:1140`），只执行一次（`engine.py:573-577`）。
 
 ### 键
 
-以 `名字|模型` 作为唯一键（`engine.py:560-561`）。
+以 `名字|模型` 作为唯一键（`engine.py:587-588`）。
 
 ### 字段
 
@@ -601,19 +606,19 @@ const KIND_FILTER = {
 
 ### 规则
 
-- 所有参赛者 `games + 1`，`kills` 累加本局击杀（`engine.py:563-569`）。
-- 若有唯一胜者，胜者对每个败者按标准 ELO 公式结算（`engine.py:577-583`）：
+- 所有参赛者 `games + 1`，`kills` 累加本局击杀（`engine.py:590-596`）。
+- 若有唯一胜者，胜者对每个败者按标准 ELO 公式结算（`engine.py:604-609`）：
   - `e = 1 / (1 + 10 ** ((ls["elo"] - ws["elo"]) / 400))`
   - 胜者：`elo += ELO_K * (1 - e)`
   - 败者：`elo -= ELO_K * (1 - e)`
-- `K = 24`，初始 `elo = 1000`（`engine.py:21-22`）。
-- 全员覆灭不算胜，不调 ELO（`engine.py:570` 因 `self.winner is None` 跳过）。
-- 称号从 `game_over.titles` 累计到每个选手的 `titles` 字段（`engine.py:583-589`）。
-- 写入为原子操作：先写 `.tmp` 再 `os.replace`（`engine.py:592-596`）。
+- `K = 24`，初始 `elo = 1000`（`engine.py:45-46`）。
+- 全员覆灭不算胜，不调 ELO（`engine.py:597` 因 `self.winner is None` 跳过）。
+- 称号从 `game_over.titles` 累计到每个选手的 `titles` 字段（`engine.py:611-616`）。
+- 写入为原子操作：先写 `.tmp` 再 `os.replace`（`engine.py:619-623`）。
 
 ### 评分与称号
 
-上限终局时调用 `_compute_rankings()`（`engine.py:492-508`）排序：
+上限终局时调用 `_compute_rankings()`（`engine.py:519-535`）排序：
 
 ```python
 key = (alive, kills, resource_score, relation_total, -id)
@@ -622,7 +627,7 @@ key = (alive, kills, resource_score, relation_total, -id)
 - `resource_score = food + ore*2 + (weapon ? 10 : 0)`
 - 全部相同时用关系总分 tie-break，再相同按 `config` 出场顺序（id 小者优先）。
 
-称号由 `_compute_titles()`（`engine.py:510-543`）计算：
+称号由 `_compute_titles()`（`engine.py:537-570`）计算：
 
 | 称号 | 规则 |
 |------|------|
@@ -639,7 +644,7 @@ key = (alive, kills, resource_score, relation_total, -id)
 
 ### 增量快照
 
-`snapshot()`（`engine.py:429-471`）返回字段：
+`snapshot()`（`engine.py:456-504`）返回字段：
 
 - `turn`, `running`, `winner`, `speed`, `demo`
 - `max_turns`: 回合上限
@@ -655,7 +660,7 @@ key = (alive, kills, resource_score, relation_total, -id)
 
 ### 回放录制
 
-`_open_recorder()`（`engine.py:87-120`）每局创建新的 JSONL 文件：
+`_open_recorder()`（`engine.py:111-145`）每局创建新的 JSONL 文件：
 
 - 首行 `type: meta`，含选手摘要。
 - 之后每行一条广播消息（`log`、`status`、`snapshot`）。
@@ -664,7 +669,7 @@ key = (alive, kills, resource_score, relation_total, -id)
 
 ### 日志落盘
 
-`_open_logfile()` / `_write_log()`（`engine.py:123-150`）把每条 `emit` 的日志追加到 `logs/match_*.log`：
+`_open_logfile()` / `_write_log()`（`engine.py:147-174`）把每条 `emit` 的日志追加到 `logs/match_*.log`：
 
 ```
 [T0] [sys] 🔄 世界已重置...
@@ -675,7 +680,7 @@ key = (alive, kills, resource_score, relation_total, -id)
 
 ### 一键导出
 
-`export_data()`（`engine.py:601-657`）返回 JSON：
+`export_data()`（`engine.py:628-687`）返回 JSON：
 
 - 优先使用 `logs/*.log` 文件中的完整日志；若内存 `history` 更长则用内存。
 - 包含 `meta`、`agents`、`logs`、`events`。
@@ -787,7 +792,7 @@ HTML 中 `<i class="ic" data-icon="play" data-size="14"></i>` 在水合时被替
 
 ### 为什么交易要复核距离？
 
-`accept_trade` 在成交前重新检查双方距离 ≤4（`tools.py:255-257`）。这是为了防止：
+`accept_trade` 在成交前重新检查双方距离 ≤4（`tools.py:347-349`）。这是为了防止：
 
 - 报价后一方跑远，另一方仍接受，造成隔空交易。
 - 报价方已移动到另一处继续战斗/采集，交易应自然作废。
@@ -800,13 +805,13 @@ HTML 中 `<i class="ic" data-icon="play" data-size="14"></i>` 在水合时被替
 a.relation[t.name] = max(a.relation.get(t.name, 0), 3)
 ```
 
-（`tools.py:298`）
+（`tools.py:396`）
 
 原因：
 
 - 结盟是一个明确的「状态跃迁」，不是慢慢堆好感。
 - 避免模型反复 `mark_ally` 刷出极高正分。
-- 与 `mark_enemy` 对称：后者直接钳制到 ≤-3（`tools.py:306`）。
+- 与 `mark_enemy` 对称：后者直接钳制到 ≤-3（`tools.py:404`）。
 
 ### 为什么 `reason` 对其他代理不可见？
 
@@ -825,14 +830,14 @@ a.relation[t.name] = max(a.relation.get(t.name, 0), 3)
 
 ### 为什么演示模式 AI 不会攻击盟友？
 
-`_near_threat`（`llm.py:138-146`）只把关系 <0 或 `last_attacker` 匹配的人视为威胁。因此高 `aggression` 也不会让演示 AI 攻击盟友，除非对方先攻击过自己。
+`_near_threat`（`llm.py:181-189`）只把关系 <0 或 `last_attacker` 匹配的人视为威胁。因此高 `aggression` 也不会让演示 AI 攻击盟友，除非对方先攻击过自己。
 
 ### 为什么 `history` 限制 800 条？
 
 内存 `history` 限制 800 条（`engine.py:216-217`），新连接时只补发最近 800 条。原因：
 
 - 避免内存无限增长。
-- 完整日志已实时写入 `.log` 文件，导出时会优先以文件为准补全（`engine.py:607-617`）。
+- 完整日志已实时写入 `.log` 文件，导出时会优先以文件为准补全（`engine.py:635-642`）。
 
 ### 为什么上限结局用「关系总分」做并列 tie-break？
 

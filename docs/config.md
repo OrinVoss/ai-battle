@@ -365,16 +365,17 @@ set EXAMPLE_API_KEY=sk-your-key-here
 
 ## 🔒 安全注意事项
 
-### API Key 存储（推荐环境变量）
+### API Key 存储（推荐 .env 文件）
 
-`config.json` 已在 `.gitignore` 中（不会进入 git），仓库提供 `config.example.json` 模板。推荐做法：
+推荐做法（优先级从高到低）：
 
-1. `config.json` 里 `api_key` 留空，改用环境变量：`DEEPSEEK_API_KEY` / `SILICONFLOW_API_KEY` / `OPENROUTER_API_KEY`。
-2. 或者直接在 `config.json` 里填明文 Key——它不会被提交，但注意别手动分享这个文件。
+1. **`.env` 文件**：复制 `.env.example` 为 `.env` 填入 Key。启动时 `llm.py` 自动加载（零依赖实现，不覆盖已存在的环境变量），`.env` 已在 `.gitignore` 中。
+2. **系统环境变量**：`DEEPSEEK_API_KEY` / `SILICONFLOW_API_KEY` / `OPENROUTER_API_KEY`。
+3. **`config.json` 明文**：复制 `config.example.json` 为 `config.json` 后在 `api_key` 字段填写——`config.json` 也在 `.gitignore` 中，但注意别手动分享这个文件。
 
-### 环境变量优先
+### Key 读取顺序
 
-`llm.py:17-27` 的读取顺序：
+`llm.py` 的读取顺序：
 
 1. 先读 `api_key`。
 2. 若为空或不存在，再读 `env_key` 对应的环境变量。

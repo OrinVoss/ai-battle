@@ -13,6 +13,26 @@ class ProviderError(Exception):
     pass
 
 
+def _load_dotenv(path=None):
+    """零依赖 .env 加载：KEY=VALUE 逐行读取，不覆盖已存在的环境变量。"""
+    path = path or os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+    try:
+        with open(path, encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                k, v = line.split("=", 1)
+                k, v = k.strip(), v.strip().strip('"').strip("'")
+                if k and k not in os.environ:
+                    os.environ[k] = v
+    except OSError:
+        pass  # 没有 .env 就用系统环境变量，正常
+
+
+_load_dotenv()
+
+
 def build_client(cfg):
     """按 provider 配置构建 AsyncOpenAI 客户端；配置有问题一律抛 ProviderError（回退演示模式）。"""
     try:

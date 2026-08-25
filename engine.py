@@ -11,6 +11,7 @@ from agent import Agent
 from llm import ProviderError, build_client, demo_decide, llm_act, llm_chat
 from world import World
 import tools
+from tools import _items_str
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 REPLAY_DIR = os.path.join(BASE, "replays")
@@ -712,7 +713,7 @@ class Engine:
                     msg += f" {v.name} 伤重不治！"
                     ctx.log(
                         "death",
-                        f"💀 {v.name} 被兽群撕碎！掉落 {v.items}",
+                        f"💀 {v.name} 被兽群撕碎！掉落 {_items_str(v.items, v.weapon)}",
                         data={
                             "victim": v.name,
                             "cause": "beast",
@@ -1081,7 +1082,7 @@ class Engine:
                 a.state = "死亡"
                 ctx.log(
                     "death",
-                    f"💀 {a.name} 耗尽了生命，倒下了！掉落 {a.items}",
+                    f"💀 {a.name} 耗尽了生命，倒下了！掉落 {_items_str(a.items, a.weapon)}",
                     data={
                         "victim": a.name,
                         "cause": "starve",

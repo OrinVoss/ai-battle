@@ -43,6 +43,18 @@ def _target(world, name, actor=None):
     return t
 
 
+def _items_str(items, weapon=False):
+    """物品字典转人类可读文本：食物x2 矿石x1（+武器）。"""
+    parts = []
+    if items.get("food"):
+        parts.append(f"食物x{items['food']}")
+    if items.get("ore"):
+        parts.append(f"矿石x{items['ore']}")
+    if weapon:
+        parts.append("武器")
+    return " ".join(parts) if parts else "空无一物"
+
+
 # ---------- 各行动结算：返回 (反馈给代理的话, [(日志类型, 日志文本), ...]) ----------
 
 def resolve_move(a, w, args, ctx):
@@ -148,7 +160,7 @@ def resolve_attack(a, w, args, ctx):
         a.kills += 1
         logs.append((
             "death",
-            f"💀 {t.name} 被 {a.name} 杀死！掉落了 {t.items}",
+            f"💀 {t.name} 被 {a.name} 杀死！掉落了 {_items_str(t.items, t.weapon)}",
             {
                 "victim": t.name,
                 "attacker": a.name,
@@ -245,7 +257,7 @@ def resolve_loot(a, w, args, ctx):
         data["ore"] = got["ore"]
     if weapon_got:
         data["weapon"] = weapon_got
-    return f"搜刮到 {got}{extra}", [("item", f"🪦 {a.name} 搜刮了 {t.name} 的尸体，得到 {got}{extra}", data)]
+    return f"搜刮到 {_items_str(got)}{extra}", [("item", f"🪦 {a.name} 搜刮了 {t.name} 的尸体，得到 {_items_str(got)}{extra}", data)]
 
 
 def resolve_craft(a, w, args, ctx):

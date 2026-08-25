@@ -146,7 +146,7 @@ class Agent:
         silent = turn - getattr(self, "last_talk", 0)
         silent_line = f"（你已经 {silent} 回合没开口说过话了——说话免费，情报无价，别当哑巴。）" if silent >= 3 else ""
         weapon_str = f"有（攻击+10，耐久{self.weapon_durability}）" if self.weapon else "无"
-        time_line = "🌙 夜晚（视野受限，只能看到 3 格内的人）" if night else "🌞 白天"
+        time_line = "🌙 夜晚（视野受限，只能看到 3 格内的人；攻击有偷袭加成）" if night else "🌞 白天"
         # 规则文本跟随实际难度参数，调难度后提示词不说谎
         drain = getattr(world, "energy_drain", 2)
         hp_drain = getattr(world, "hp_drain", 3)
@@ -154,32 +154,31 @@ class Agent:
         forest_rate = min(100, round(50 * getattr(world, "gather_mult", 1.0)))
         dmg_mult = getattr(world, "damage_mult", 1.0)
         dmg_lo, dmg_hi, dmg_wp = round(8 * dmg_mult), round(14 * dmg_mult), round(10 * dmg_mult)
-        night_bonus = "，夜晚偷袭+3" if night else ""
 
         # user 消息按「最稳定 → 最易变」排序，让 DeepSeek 前缀缓存命中率最大化：
-        # 1) 世界规则（难度参数不变时完全稳定）
-        # 2) 状态/关系/笔记/交易/视野（多数回合只小变）
-        # 3) 5x5 小地图（每回合随位置变）
-        # 4) 最近见闻（每回合都变）
-        # 5) 易变提示行、回合/昼夜信息（最后）
+        # 1) 世界规则（整局恒定）
+        # 2) 长期笔记（仅 remember 时变）→ 关系（仅冲突/交易时变）→ 交易（罕见）
+        # 3) 视野内的人/尸体（随位置变）
+        # 4) 你的状态（能量每回合 -2，每回合必变！）
+        # 5) 5x5 小地图、最近见闻、回合/昼夜（每回合都变，放最后）
         parts = [
             "【世界规则】",
             f"- 每回合你必须且只能执行一个行动。回合不断循环：每回合能量自动-{drain:g}；能量归零后每回合生命-{hp_drain:g}。",
             f"- 🍞 吃食物：生命+12。😴 休息：能量+20。采集：草地{grass_rate}%捡到食物，森林{forest_rate}%找到野果，f/o 矿脉直接采集（矿脉会耗尽）。",
-            f"- ⚔️ 攻击：消耗5能量，伤害{dmg_lo}-{dmg_hi}（有武器+{dmg_wp}{night_bonus}），会结仇，被打的人会记住你。武器有耐久，用多了会碎。",
+            f"- ⚔️ 攻击：消耗5能量，伤害{dmg_lo}-{dmg_hi}（有武器+{dmg_wp}，夜晚偷袭再+3），会结仇，被打的人会记住你。武器有耐久，用多了会碎。",
             f"- ⛏️ 3块矿石可打造武器（攻击+{dmg_wp}）。你可以和其他人交易食物/矿石，也可以单方面赠送给4格内的人以拉拢关系。",
             "- 你只能看到视野内的人，看不到的人也无法 inspect；距离你4格内的人说话你能听到；全场大喊也能听到（但会暴露你的位置）。",
             "- 你的选择完全自由：和平共处、结盟、垄断资源、见人就打、背后偷袭……都行。用工具执行行动；拿不定主意就用 wait。",
             "",
+            f"【你的长期笔记】{notes}",
+            f"【你与所有代理的关系】{self.relation_str(world)}",
+            f"【待处理交易】{trade}",
+            f"【你视野内的人】（视野 {vision} 格）{np_str}",
+            f"【你视野内的尸体】（可移动到同格搜刮）{corpse_str}",
+            "",
             "【你的状态】",
             f"❤️ 生命 {self.hp}/100 | ⚡ 能量 {self.energy}/100 | 📍 位置 ({tx},{ty})",
             f"🍞 食物 x{self.items['food']} | ⛏️ 矿石 x{self.items['ore']} | 🗡️ 武器 {weapon_str}",
-            "",
-            f"【你与所有代理的关系】{self.relation_str(world)}",
-            f"【你的长期笔记】{notes}",
-            f"【你视野内的人】（视野 {vision} 格）{np_str}",
-            f"【你视野内的尸体】（可移动到同格搜刮）{corpse_str}",
-            f"【待处理交易】{trade}",
             "",
             "【你周围的环境】（5x5，你=你，f=食物矿，o=矿石矿，F=森林，~=水，M=山，?=视野外）",
             self.nearby_map(world),

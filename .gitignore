@@ -4,3 +4,4 @@ __pycache__/
 replays/
 logs/
 stats.json
+config.json

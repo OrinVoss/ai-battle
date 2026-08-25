@@ -365,18 +365,12 @@ set EXAMPLE_API_KEY=sk-your-key-here
 
 ## 🔒 安全注意事项
 
-### API Key 明文存储
+### API Key 存储（推荐环境变量）
 
-`config.json` 中 `api_key` 是明文。如果要把项目推到 GitHub：
+`config.json` 已在 `.gitignore` 中（不会进入 git），仓库提供 `config.example.json` 模板。推荐做法：
 
-1. 先删除 `api_key` 字段中的内容，或改用环境变量。
-2. 把 `config.json` 加入 `.gitignore`。
-
-当前 `.gitignore` 已包含 `replays/`、`logs/`、`stats.json`、`.env`，但未默认忽略 `config.json`，请自行添加：
-
-```gitignore
-config.json
-```
+1. `config.json` 里 `api_key` 留空，改用环境变量：`DEEPSEEK_API_KEY` / `SILICONFLOW_API_KEY` / `OPENROUTER_API_KEY`。
+2. 或者直接在 `config.json` 里填明文 Key——它不会被提交，但注意别手动分享这个文件。
 
 ### 环境变量优先
 

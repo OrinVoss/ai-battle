@@ -23,8 +23,9 @@ python main.py
 > 没填 API Key 也能跑：引擎自动进入「演示模式」，用规则 AI 模拟选手行为，先把整套戏看明白。
 > 填了 Key 的选手用真实模型，没填的选手继续用规则模拟，可以混搭。
 >
-> ⚠️ 安全提示：API Key 明文存在 `config.json` 里，如果要把项目推到 GitHub，记得先删掉 Key
-> 或改用环境变量（`DEEPSEEK_API_KEY` / `SILICONFLOW_API_KEY` / `OPENROUTER_API_KEY`），并把 `config.json` 加进 `.gitignore`。
+> 🔑 **API Key 配置**：推荐用环境变量（`DEEPSEEK_API_KEY` / `SILICONFLOW_API_KEY` / `OPENROUTER_API_KEY`）。
+> 复制 `config.example.json` 为 `config.json` 后按需在 provider 的 `api_key` 字段填写也行——
+> `config.json` 已在 `.gitignore` 中，不会被提交。
 
 跑单元测试（纯逻辑，不需要 API key）：
 

@@ -198,6 +198,12 @@ class Engine:
         if self._review_task is not None and not self._review_task.done():
             self._review_task.cancel()
         self._review_task = None
+        # 解说/反思任务持有旧世界选手的引用，不取消会把旧一局的内容写进新一局的日志
+        for attr in ("_commentary_task", "_reflection_task"):
+            task = getattr(self, attr)
+            if task is not None and not task.done():
+                task.cancel()
+            setattr(self, attr, None)
         self._open_logfile()
         self._open_recorder()
 
@@ -979,11 +985,12 @@ class Engine:
         if night != world.night:
             world.night = night
             self.emit("sys", "🌙 夜幕降临，所有人视野减半，小心行事。" if night else "🌞 天亮了，视野恢复。")
-        world.harvest = self.turn <= self.harvest_until
 
         # 资源再生 + 随机世界事件
         world.regen()
         self.roll_world_event(ctx)
+        # 丰收季标志必须在滚完事件之后再算：事件公告当回合立即生效（含触发回合共 3 回合）
+        world.harvest = self.turn <= self.harvest_until
 
         async def decide(a):
             if self.clients.get(a.name) is None:

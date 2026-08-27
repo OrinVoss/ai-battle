@@ -56,6 +56,10 @@ function applyMsg(m) {
       anim.night = 0;
       settleDismissed = false; // 新一局允许再次自动弹结算面板
       for (const k in prevBars) delete prevBars[k];
+      // 上一局的胜利横幅 / 结算 / 击杀播报也要清掉，别让新局顶着旧横幅开场
+      hideBanner();
+      $("settle-panel").classList.add("hidden");
+      $("killbanner").classList.add("hidden");
     }
     // 自然结束只广播 snapshot 不发 status，这里同步运行状态与胜负横幅
     state.running = !!m.running;
@@ -65,8 +69,8 @@ function applyMsg(m) {
   }
   else if (m.type === "log") { addLog(m); }
   else if (m.type === "review") {
+    // 日志行由后端 emit(kind=review) 那一路广播过了，这里只更新结算面板，避免复盘在日志里出现两遍
     onReview(m.text);
-    addLog({ kind: "review", text: m.text, turn: m.turn || (state.snapshot ? state.snapshot.turn : 0) });
   }
   else if (m.type === "status") {
     state.running = !!m.running;
@@ -380,8 +384,9 @@ function appendLine(line) {
   const ic = KIND_ICONS[line.kind] || "gear";
   el.innerHTML = `<span class="l-turn">T${esc(line.turn)}</span><span class="l-ic">${icon(ic, 12)}</span>`;
   el.appendChild(document.createTextNode(stripLeadEmoji(line.text)));
-  $("log").appendChild(el);
   const wrap = $("log");
+  wrap.appendChild(el);
+  while (wrap.childElementCount > 800) wrap.removeChild(wrap.firstChild); // DOM 与 state.lines 同步封顶，防长局卡顿
   const nearBottom = wrap.scrollTop + wrap.clientHeight > wrap.scrollHeight - 60;
   if (nearBottom) wrap.scrollTop = wrap.scrollHeight;
   applyFilterLine(el);

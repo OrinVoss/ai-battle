@@ -131,7 +131,7 @@ async def llm_act(client, model, messages, tools, temperature=0.9, max_tokens=90
             if not isinstance(args, dict):
                 args = {}
             thinking = str(parsed.get("thinking") or args.get("reason") or "").strip()
-            return str(parsed["action"]), args, thinking, usage
+            return str(parsed["action"]), args, _trim_think(thinking), usage
         if "name" in parsed:
             args = parsed.get("arguments") or {}
             if not isinstance(args, dict):

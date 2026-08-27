@@ -348,8 +348,10 @@ def resolve_accept_trade(a, w, args, ctx):
         cancel()  # 报价后走远了，交易作废
         return "对方已走远，交易取消", []
     if a.items.get(tr["want"], 0) < tr["wn"]:
+        cancel()  # 物品不足同样作废挂单，别让它一直占坑挡住后续提案
         return "你的东西不够，交易取消", []
     if offerer.items.get(tr["offer"], 0) < tr["on"]:
+        cancel()
         return "对方的东西不够，交易取消", []
     offerer.items[tr["offer"]] -= tr["on"]
     a.items[tr["want"]] -= tr["wn"]

@@ -280,3 +280,77 @@ def test_demo_rest_when_all_blocked(monkeypatch):
     monkeypatch.setattr(engine_mod.random, "random", lambda: 1.0)  # 跳过概率分支（含原地采集）
     act, args = demo_decide(a, w)
     assert act == "rest"
+
+
+# ---------------------------------------------------------------------------
+# 第二轮审查修复的回归测试
+# ---------------------------------------------------------------------------
+
+class _FakeTask:
+    def __init__(self):
+        self.cancelled = False
+
+    def done(self):
+        return False
+
+    def cancel(self):
+        self.cancelled = True
+
+
+# 丰收季公告当回合立即翻倍：world.harvest 必须在滚事件之后计算
+def test_harvest_bonus_includes_announcement_turn(monkeypatch):
+    eng = make_engine(world_extra={"event_prob": 0.3})
+    eng.turn = 3  # run_turn 后变为第 4 回合，在此触发丰收季
+
+    calls = {"n": 0}
+
+    def seq_random():
+        calls["n"] += 1
+        return 0.05 if calls["n"] == 1 else 1.0  # 首次调用（滚事件）必中，之后全部避开概率分支
+
+    monkeypatch.setattr(engine_mod.random, "random", seq_random)
+    monkeypatch.setattr(engine_mod.random, "choice", lambda seq: "harvest")
+    asyncio.run(eng.run_turn())
+    assert eng.turn == 4 and eng.harvest_until == 6
+    assert eng.world.harvest is True  # 公告当回合采集就翻倍（共 4、5、6 三回合）
+
+
+# accept_trade 接收方物品不足：同样要取消挂单
+def test_accept_trade_receiver_items_insufficient_clears_pending():
+    w, a, b = pair()
+    a.items = {"food": 3, "ore": 0}
+    b.items = {"food": 0, "ore": 2}
+    tools.resolve_propose_trade(
+        a, w, {"target": "乙", "offer_item": "food", "offer_amount": 1,
+               "want_item": "ore", "want_amount": 1}, Ctx())
+    tr = b.pending_trade
+    b.items["ore"] = 0  # 接收方事后把矿石花光了
+    fb, _ = tools.resolve_accept_trade(b, w, {"trade_id": tr["id"]}, Ctx())
+    assert "你的东西不够" in fb
+    assert b.pending_trade is None and w.pending_trades == []
+
+
+# accept_trade 报价方物品不足：同样要取消挂单，否则接收方被"占坑"挡住后续提案
+def test_accept_trade_offerer_items_insufficient_clears_pending():
+    w, a, b = pair()
+    a.items = {"food": 3, "ore": 0}
+    b.items = {"food": 0, "ore": 2}
+    tools.resolve_propose_trade(
+        a, w, {"target": "乙", "offer_item": "food", "offer_amount": 1,
+               "want_item": "ore", "want_amount": 1}, Ctx())
+    tr = b.pending_trade
+    a.items["food"] = 0  # 报价方事后把食物花光了
+    fb, _ = tools.resolve_accept_trade(b, w, {"trade_id": tr["id"]}, Ctx())
+    assert "对方的东西不够" in fb
+    assert b.pending_trade is None and w.pending_trades == []
+
+
+# reset 必须连带取消解说/反思后台任务，防止旧一局的内容串进新一局日志
+def test_reset_cancels_commentary_and_reflection_tasks():
+    eng = make_engine()
+    fake_commentary, fake_reflection = _FakeTask(), _FakeTask()
+    eng._commentary_task = fake_commentary
+    eng._reflection_task = fake_reflection
+    eng.reset()
+    assert fake_commentary.cancelled and fake_reflection.cancelled
+    assert eng._commentary_task is None and eng._reflection_task is None

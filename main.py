@@ -23,6 +23,25 @@ class Hub:
     def __init__(self):
         self.conns = set()
         self.recorder = None  # engine 每局挂一个写文件的回调
+        self._staging = {}    # WebSocket -> 消息列表：新连接回填历史期间的实时广播先入队
+
+    def stage(self, ws):
+        """注册连接并进入暂存模式；flush 前广播不会直发它，避免和历史补发交错乱序。"""
+        self._staging[ws] = []
+        self.conns.add(ws)
+
+    async def flush(self, ws):
+        """历史补发完成，把暂存的广播按序跟上并结束暂存模式。"""
+        buf = self._staging.pop(ws, [])
+        try:
+            for data in buf:
+                await ws.send_text(data)
+        except Exception:
+            self.discard(ws)
+
+    def discard(self, ws):
+        self.conns.discard(ws)
+        self._staging.pop(ws, None)
 
     async def send(self, type_, payload):
         data = json.dumps({"type": type_, **payload}, ensure_ascii=False)
@@ -33,19 +52,25 @@ class Hub:
                 pass
         if not self.conns:
             return
+        direct = []
+        for ws in list(self.conns):
+            buf = self._staging.get(ws)
+            if buf is not None:
+                buf.append(data)  # 补发中的连接只入队，保持消息顺序
+            else:
+                direct.append(ws)
         # 并行发送，失败的连接先 close 再剔除
-        targets = list(self.conns)
         results = await asyncio.gather(
-            *(ws.send_text(data) for ws in targets), return_exceptions=True
+            *(ws.send_text(data) for ws in direct), return_exceptions=True
         )
-        for ws, r in zip(targets, results):
+        for ws, r in zip(direct, results):
             if isinstance(r, Exception):
                 print(f"[Hub] WebSocket 发送失败，移除连接：{type(r).__name__}: {r}")
                 try:
                     await ws.close()
                 except Exception:
                     pass
-                self.conns.discard(ws)
+                self.discard(ws)
 
 
 hub = Hub()
@@ -67,12 +92,14 @@ app = FastAPI(title="AI 大战 · 多模型生存沙盒", lifespan=lifespan)
 @app.websocket("/ws")
 async def ws_endpoint(ws: WebSocket):
     await ws.accept()
-    hub.conns.add(ws)
-    # 新连接先补发全量状态（full=True 保证带完整地图）
+    # 新连接先补发全量状态（full=True 保证带完整地图）；
+    # 补发期间到达的实时广播由 Hub 暂存，flush 后按序跟上，避免乱序/重复
+    hub.stage(ws)
     await ws.send_text(json.dumps({"type": "snapshot", **engine.snapshot(full=True)}, ensure_ascii=False))
     await ws.send_text(json.dumps({"type": "status", "running": engine.running, "winner": engine.winner}, ensure_ascii=False))
     for entry in engine.history:
         await ws.send_text(json.dumps({"type": "log", **entry}, ensure_ascii=False))
+    await hub.flush(ws)
     try:
         while True:
             msg = await ws.receive_json()
@@ -137,9 +164,9 @@ async def ws_endpoint(ws: WebSocket):
                 if text:
                     engine.god_say(text[:200])
     except WebSocketDisconnect:
-        hub.conns.discard(ws)
+        hub.discard(ws)
     except Exception:
-        hub.conns.discard(ws)
+        hub.discard(ws)
 
 
 @app.get("/api/export")

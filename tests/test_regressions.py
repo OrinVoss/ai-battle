@@ -369,3 +369,29 @@ def test_engine_files_isolated_from_project():
     after = {d: (set(os.listdir(d)) if os.path.isdir(d) else None) for d in (real_logs, real_replays)}
     assert after == before
     assert os.path.dirname(eng.log_path) != real_logs
+
+
+# WS 补发阶段（snapshot/status/历史）异常必须清掉 Hub 登记：
+# 否则这条死连接会永久留在 conns/_staging 里，之后每条广播都往它的缓冲区堆
+def test_ws_endpoint_discards_conn_on_replay_failure():
+    import main as main_mod
+
+    class FakeWS:
+        def __init__(self):
+            self.sent = 0
+
+        async def accept(self):
+            pass
+
+        async def send_text(self, data):
+            self.sent += 1
+            if self.sent > 1:          # 第 2 条补发时客户端已断开
+                raise RuntimeError("client gone")
+
+        async def receive_json(self):
+            raise AssertionError("补发失败后不应进入接收循环")
+
+    ws = FakeWS()
+    asyncio.run(main_mod.ws_endpoint(ws))
+    assert ws not in main_mod.hub.conns
+    assert ws not in main_mod.hub._staging

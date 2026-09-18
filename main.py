@@ -95,10 +95,16 @@ async def ws_endpoint(ws: WebSocket):
     # 新连接先补发全量状态（full=True 保证带完整地图）；
     # 补发期间到达的实时广播由 Hub 暂存，flush 后按序跟上，避免乱序/重复
     hub.stage(ws)
-    await ws.send_text(json.dumps({"type": "snapshot", **engine.snapshot(full=True)}, ensure_ascii=False))
-    await ws.send_text(json.dumps({"type": "status", "running": engine.running, "winner": engine.winner}, ensure_ascii=False))
-    for entry in engine.history:
-        await ws.send_text(json.dumps({"type": "log", **entry}, ensure_ascii=False))
+    try:
+        await ws.send_text(json.dumps({"type": "snapshot", **engine.snapshot(full=True)}, ensure_ascii=False))
+        await ws.send_text(json.dumps({"type": "status", "running": engine.running, "winner": engine.winner}, ensure_ascii=False))
+        for entry in engine.history:
+            await ws.send_text(json.dumps({"type": "log", **entry}, ensure_ascii=False))
+    except Exception:
+        # 补发中途断开（典型：客户端刷新页面）：必须清掉暂存登记，
+        # 否则这条死连接会永久留在 Hub 里，之后每条广播都往它的缓冲区堆
+        hub.discard(ws)
+        return
     await hub.flush(ws)
     try:
         while True:

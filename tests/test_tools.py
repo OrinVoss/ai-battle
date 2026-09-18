@@ -447,3 +447,12 @@ def test_text_args_tolerate_non_string():
         assert isinstance(feedback, str) and feedback      # 不抛异常，且有反馈
         assert isinstance(logs, list)
     assert a.notes == ["[T1] 42"]                          # 数字被转成文本记下
+
+
+# loot 对不存在的名字不能回"目标还活着"（旧写法把两种情况混成一句，误导模型）
+def test_loot_unknown_target_message():
+    w, a, b = pair()
+    fb, logs = tools.resolve_loot(a, w, {"target": "幽灵"}, Ctx())
+    assert "查无此人" in fb and logs == []
+    fb, _ = tools.resolve_loot(a, w, {"target": "乙"}, Ctx())
+    assert "还活着" in fb

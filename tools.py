@@ -238,7 +238,9 @@ def resolve_inspect(a, w, args, ctx):
 
 def resolve_loot(a, w, args, ctx):
     t = w.by_name(args.get("target", ""))
-    if not t or t.alive:
+    if not t:
+        return "查无此人", []
+    if t.alive:
         return "目标还活着，没法搜刮", []
     if t.pos != a.pos:
         return "尸体不在这里", []

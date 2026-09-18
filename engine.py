@@ -978,7 +978,6 @@ class Engine:
         self.turn += 1
         world = self.world  # 决策期间若被 reset（world 已替换），放弃本回合结算
         ctx = TurnCtx(self, self.turn)
-        alive = [a for a in self.agents if a.alive]
 
         # 昼夜循环：24 回合一个周期，前 16 白天、后 8 夜晚（夜晚视野减半）
         night = (self.turn - 1) % CYCLE_LEN >= DAY_LEN
@@ -991,6 +990,9 @@ class Engine:
         self.roll_world_event(ctx)
         # 丰收季标志必须在滚完事件之后再算：事件公告当回合立即生效（含触发回合共 3 回合）
         world.harvest = self.turn <= self.harvest_until
+        # 决策名单必须在滚完事件之后再取：兽群事件可能当回合咬死某人，
+        # 已经死掉的人再调用一次模型纯属浪费（结算阶段本来就会跳过）
+        alive = [a for a in self.agents if a.alive]
 
         async def decide(a):
             if self.clients.get(a.name) is None:

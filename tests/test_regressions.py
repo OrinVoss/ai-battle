@@ -395,3 +395,26 @@ def test_ws_endpoint_discards_conn_on_replay_failure():
     asyncio.run(main_mod.ws_endpoint(ws))
     assert ws not in main_mod.hub.conns
     assert ws not in main_mod.hub._staging
+
+
+# 兽群事件当回合咬死的人不得再调用一次模型：决策名单必须晚于 world 事件生成
+def test_world_event_kill_skips_decision(monkeypatch):
+    eng = make_engine()
+    victim = eng.agents[0]
+
+    def wolves(self, ctx):
+        victim.alive = False
+        victim.state = "死亡"
+        victim.hp = 0
+
+    monkeypatch.setattr(engine_mod.Engine, "roll_world_event", wolves)
+    called = []
+
+    def spy(a, w):
+        called.append(a.name)
+        return "wait", {}
+
+    monkeypatch.setattr(engine_mod, "demo_decide", spy)
+    asyncio.run(eng.run_turn())
+    assert called == ["乙"]          # 甲已被事件咬死，不再决策
+    assert victim.last_thought == ""

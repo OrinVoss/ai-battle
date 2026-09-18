@@ -247,9 +247,12 @@ app.mount("/", StaticFiles(directory=os.path.join(BASE, "web"), html=True), name
 
 @app.middleware("http")
 async def no_cache_frontend(request, call_next):
-    """前端文件禁用缓存，改代码刷新页面即可生效，避免浏览器缓存旧版。"""
+    """前端文件禁用缓存，改代码刷新页面即可生效，避免浏览器缓存旧版。
+
+    路径要与 web/ 目录里的前端文件保持一致（漏掉的那个仍会被浏览器缓存）。
+    """
     response = await call_next(request)
-    if request.url.path in ("/", "/index.html", "/app.js", "/style.css"):
+    if request.url.path in ("/", "/index.html", "/app.js", "/style.css", "/icons.js"):
         response.headers["Cache-Control"] = "no-store"
     return response
 

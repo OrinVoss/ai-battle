@@ -397,6 +397,29 @@ def test_ws_endpoint_discards_conn_on_replay_failure():
     assert ws not in main_mod.hub._staging
 
 
+# 前端文件禁缓存名单必须覆盖 web/ 下所有文件（漏掉的会被浏览器缓存住旧版）
+def test_frontend_no_cache_covers_all_web_files():
+    import os
+    import types
+    import main as main_mod
+
+    base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    web = os.path.join(base, "web")
+    names = sorted(n for n in os.listdir(web) if os.path.isfile(os.path.join(web, n)))
+    assert names
+
+    class Req:
+        def __init__(self, path):
+            self.url = types.SimpleNamespace(path=path)
+
+    async def call_next(_req):
+        return types.SimpleNamespace(headers={})
+
+    for path in ["/"] + [f"/{n}" for n in names]:
+        resp = asyncio.run(main_mod.no_cache_frontend(Req(path), call_next))
+        assert resp.headers.get("Cache-Control") == "no-store", path
+
+
 # 兽群事件当回合咬死的人不得再调用一次模型：决策名单必须晚于 world 事件生成
 def test_world_event_kill_skips_decision(monkeypatch):
     eng = make_engine()

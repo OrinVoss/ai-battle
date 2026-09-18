@@ -12,7 +12,16 @@ function connect() {
   if (ws && ws.readyState < 2) return; // 已有连接或正在连接，避免重连竞态建双连接
   const sock = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws`);
   ws = sock;
-  sock.onopen = () => console.log("[ws] 已连接");
+  sock.onopen = () => {
+    // 服务端在每次连接建立时都会补发全量快照 + 全部历史日志，
+    // 所以重连后必须先清空现有日志，否则同一批历史会再追加一遍。
+    // 回放模式下日志是本地按消息流重建的，不能清。
+    if (!rp.active) {
+      state.lines = [];
+      $("log").innerHTML = "";
+    }
+    console.log("[ws] 已连接");
+  };
   sock.onmessage = e => {
     try { handle(JSON.parse(e.data)); }
     catch (err) { console.error("[ws] 消息处理失败", err); }

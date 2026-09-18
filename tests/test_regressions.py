@@ -354,3 +354,18 @@ def test_reset_cancels_commentary_and_reflection_tasks():
     eng.reset()
     assert fake_commentary.cancelled and fake_reflection.cancelled
     assert eng._commentary_task is None and eng._reflection_task is None
+
+
+# 测试构造 Engine 不得写真实 logs/replays/stats：否则每跑一次 pytest 就会触发
+# "保留最近 50 个" 的轮转，把真实对局记录删掉（由 tests/conftest.py 的 autouse fixture 保证）
+def test_engine_files_isolated_from_project():
+    import os
+    base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    real_logs = os.path.join(base, "logs")
+    real_replays = os.path.join(base, "replays")
+    before = {d: (set(os.listdir(d)) if os.path.isdir(d) else None) for d in (real_logs, real_replays)}
+    eng = make_engine()
+    eng.reset()
+    after = {d: (set(os.listdir(d)) if os.path.isdir(d) else None) for d in (real_logs, real_replays)}
+    assert after == before
+    assert os.path.dirname(eng.log_path) != real_logs

@@ -714,6 +714,7 @@ class Engine:
                 event_data["damage"] = dmg
                 msg = f"🐺 世界事件：兽群来袭！{v.name} 被野兽撕咬，生命 -{dmg}。"
                 if v.hp <= 0:
+                    v.hp = 0          # 溢出伤害不留在面板上显示负血
                     v.alive = False
                     v.state = "死亡"
                     msg += f" {v.name} 伤重不治！"
@@ -1087,6 +1088,7 @@ class Engine:
                 if a.hp > 0 and hp_drain > 0:
                     ctx.log("sys", f"🥵 {a.name} 精疲力竭，生命 -{hp_drain:g}")
             if a.hp <= 0 and a.alive:
+                a.hp = 0              # 溢出伤害不留在面板上显示负血
                 a.alive = False
                 a.state = "死亡"
                 ctx.log(

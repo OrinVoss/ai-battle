@@ -155,6 +155,7 @@ def resolve_attack(a, w, args, ctx):
             a.weapon_durability = 0
             logs.append(("fight", f"💥 {a.name} 的武器碎裂了！", {"actor": a.name, "weapon_broke": True}))
     if t.hp <= 0:
+        t.hp = 0                 # 溢出伤害不留在面板上显示负血
         t.alive = False
         t.state = "死亡"
         a.kills += 1

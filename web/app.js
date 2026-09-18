@@ -317,6 +317,7 @@ function renderAgents() {
     const costTxt = u.cost == null ? "费用未知" : "¥" + u.cost.toFixed(4);
     const cacheTxt = u.cache_rate == null ? "" : `缓存 ${u.cache_est ? "~" : ""}${Math.round(u.cache_rate * 100)}%`;
     const weaponTxt = a.weapon ? `${icon("sword", 10)}${a.weapon_durability}` : "·";
+    const hpShown = Math.max(0, a.hp); // 溢出伤害只体现在日志里，卡片不显示负血
     const prev = prevBars[a.name] || {};
     const hpFlux = prev.hp != null && prev.hp !== a.hp ? " flux" : "";
     const enFlux = prev.energy != null && prev.energy !== a.energy ? " flux" : "";
@@ -329,7 +330,7 @@ function renderAgents() {
       <div class="c-head"><span class="c-emoji">${icon(avatarIconName(a.emoji), 19)}</span><span class="c-name" title="${esc(a.provider)} · ${esc(a.model)}">${esc(a.name)}</span>
         <span class="c-state ${a.alive ? "" : "dead"}">${a.alive ? "活" : "死"}</span></div>
       <div class="c-bars">
-        <div class="bar${hpFlux}"><span class="b-ic b-hp">${icon("heart", 11)}</span><div class="bar-track"><div class="bar-fill hp${a.hp <= 30 ? " low" : ""}" style="width:${Math.max(0, a.hp)}%"></div></div><span>${a.hp}</span></div>
+        <div class="bar${hpFlux}"><span class="b-ic b-hp">${icon("heart", 11)}</span><div class="bar-track"><div class="bar-fill hp${hpShown <= 30 ? " low" : ""}" style="width:${hpShown}%"></div></div><span>${hpShown}</span></div>
         <div class="bar${enFlux}"><span class="b-ic b-en">${icon("bolt", 11)}</span><div class="bar-track"><div class="bar-fill en" style="width:${Math.max(0, a.energy)}%"></div></div><span>${a.energy}</span></div>
       </div>
       <div class="c-meta"><span>${icon("bread", 10)} ${a.items.food} ${icon("ore", 10)} ${a.items.ore} ${weaponTxt}${a.kills ? " " + icon("skull", 10) + a.kills : ""}</span><span>${esc(a.model)}</span></div>

@@ -418,3 +418,26 @@ def test_world_event_kill_skips_decision(monkeypatch):
     asyncio.run(eng.run_turn())
     assert called == ["乙"]          # 甲已被事件咬死，不再决策
     assert victim.last_thought == ""
+
+
+# 死亡时生命下限钳到 0：溢出伤害只出现在战斗日志里，不该在面板/导出里显示负血
+def test_attack_death_clamps_hp_at_zero():
+    w, a, b = pair()
+    b.hp = 5
+    a.weapon = True
+    a.weapon_durability = 6
+    tools.resolve_attack(a, w, {"target": "乙"}, Ctx())
+    assert not b.alive
+    assert b.hp == 0
+
+
+def test_starvation_death_clamps_hp_at_zero(monkeypatch):
+    eng = make_engine()
+    victim = eng.agents[0]
+    victim.energy = 0
+    victim.hp = 2
+    victim.items = {"food": 0, "ore": 0}
+    monkeypatch.setattr(engine_mod, "demo_decide", lambda a, w: ("wait", {}))
+    asyncio.run(eng.run_turn())
+    assert not victim.alive
+    assert victim.hp == 0

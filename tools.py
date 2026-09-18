@@ -43,6 +43,11 @@ def _target(world, name, actor=None):
     return t
 
 
+def _text(v):
+    """把模型可能塞进 text/note 的非字符串值统一成字符串（None 当空串）。"""
+    return "" if v is None else str(v).strip()
+
+
 def _items_str(items, weapon=False):
     """物品字典转人类可读文本：食物x2 矿石x1（+武器）。"""
     parts = []
@@ -178,7 +183,7 @@ def resolve_attack(a, w, args, ctx):
 
 
 def resolve_talk(a, w, args, ctx):
-    text = (args.get("text", "") or "").strip()[:120]
+    text = _text(args.get("text"))[:120]
     if not text:
         return "话到嘴边又咽了回去", []
     a.last_talk = ctx.turn
@@ -191,7 +196,7 @@ def resolve_talk(a, w, args, ctx):
 
 
 def resolve_shout(a, w, args, ctx):
-    text = (args.get("text", "") or "").strip()[:120]
+    text = _text(args.get("text"))[:120]
     if not text:
         return "喊了个寂寞", []
     a.last_talk = ctx.turn
@@ -205,7 +210,7 @@ def resolve_shout(a, w, args, ctx):
 
 def resolve_whisper(a, w, args, ctx):
     t = _target(w, args.get("target", ""), a)
-    text = (args.get("text", "") or "").strip()[:120]
+    text = _text(args.get("text"))[:120]
     if not t:
         return "对方不在", []
     if not text:
@@ -383,7 +388,7 @@ def resolve_decline_trade(a, w, args, ctx):
 
 
 def resolve_remember(a, w, args, ctx):
-    note = (args.get("note", "") or "").strip()[:100]
+    note = _text(args.get("note"))[:100]
     if not note:
         return "记了个寂寞", []
     a.notes.append(f"[T{ctx.turn}] {note}")

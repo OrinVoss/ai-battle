@@ -433,3 +433,17 @@ def test_attack_kill_notifies_witnesses():
     assert b.alive is False
     assert any("目睹" in m and "乙" in m for m in c.memory)
 
+
+
+# ---------- 参数类型容错：模型偶尔把 text/note 写成数字 ----------
+
+def test_text_args_tolerate_non_string():
+    w, a, b = pair()
+    for fn, args in ((tools.resolve_talk, {"text": 5}),
+                     (tools.resolve_shout, {"text": 5}),
+                     (tools.resolve_whisper, {"target": "乙", "text": 7}),
+                     (tools.resolve_remember, {"note": 42})):
+        feedback, logs = fn(a, w, args, Ctx())
+        assert isinstance(feedback, str) and feedback      # 不抛异常，且有反馈
+        assert isinstance(logs, list)
+    assert a.notes == ["[T1] 42"]                          # 数字被转成文本记下

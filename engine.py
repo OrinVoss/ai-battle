@@ -942,11 +942,16 @@ class Engine:
                     f"食物 {a.items['food']}，矿石 {a.items['ore']}，"
                     f"武器{'有' if a.weapon else '无'}"
                 )
-                text, _usage = await llm_chat(
+                text, usage = await llm_chat(
                     self.clients[a.name], a.model,
                     [{"role": "system", "content": system}, {"role": "user", "content": user}],
                     temperature=0.8, max_tokens=120,
                 )
+                if usage:
+                    # 反思用的是这名选手自己的 client/model，token 与费用算他的
+                    # （llm_chat 不返回缓存字段，这里不动 cache_hit/cache_miss）
+                    a.usage["prompt"] += usage["prompt"]
+                    a.usage["completion"] += usage["completion"]
                 if text:
                     a.notes.append(f"[反思] {text}")
                     if len(a.notes) > 10:

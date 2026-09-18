@@ -115,3 +115,22 @@ def test_reflection_no_pile(monkeypatch):
     asyncio.run(main())
     # 反思按代理调用，2 名代理各调用 1 次
     assert calls[0] == 2
+
+
+def test_reflection_usage_counted(monkeypatch):
+    """反思用的是选手自己的 client/model，token 必须计进他的用量（费用统计口径）。"""
+    async def fake_chat(client, model, messages, **kwargs):
+        return "稳住别浪", {"prompt": 120, "completion": 30}
+
+    monkeypatch.setattr(engine_mod, "llm_chat", fake_chat)
+    monkeypatch.setattr(engine_mod, "llm_act", fake_llm_act)
+    eng = make_engine(
+        providers={"x": {"name": "X", "base_url": "https://x", "api_key": "sk-x", "models": ["m"]}},
+        world_extra={"reflect_interval": 1},
+    )
+    before = [(a.usage["prompt"], a.usage["completion"]) for a in eng.agents]
+    run(eng)
+    after = [(a.usage["prompt"], a.usage["completion"]) for a in eng.agents]
+    assert all((p1 - p0, c1 - c0) == (120, 30)
+               for (p0, c0), (p1, c1) in zip(before, after))
+    assert all(a.notes for a in eng.agents)

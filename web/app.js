@@ -41,7 +41,12 @@ function esc(s) {
 function applyMsg(m) {
   if (m.type === "snapshot") {
     // 世界网格增量推送：没带 grid 时沿用上一份缓存
-    if (m.world && !m.world.grid && state.snapshot && state.snapshot.world) {
+    if (m.world && m.world.grid) {
+      // 带全量地图 = 新连接 / 重置 / 应用设置后的权威地形，必须丢掉地形缓存。
+      // 只比 world_version 不够：新一局的版本从 0 重新开始，"刚连上就重置"
+      // 或"连点两次重置"时新旧版本都是 0，会继续画上一局的旧地图。
+      terrainVer = -1;
+    } else if (m.world && state.snapshot && state.snapshot.world) {
       m.world.grid = state.snapshot.world.grid;
       m.world.deposits = state.snapshot.world.deposits;
     }

@@ -505,8 +505,10 @@ provider 下拉框联动 model 下拉框：切换 provider 时，model 列表会
 - **单方面赠送**：`give(target, item, amount)`，距离 ≤4，可赠送 food/ore；受赠者对赠送者关系 **+2**，日志 kind 为 `trade`。
 - **提出交易**：`propose_trade`，距离 ≤4，offer/want 只能是 food/ore，数量 ≥1。
 - **交易编号**：`T{回合}-{发起人id}`。
+- **挂单时效**：挂单存活 10 回合（`tools.TRADE_TTL`）；对方一直不回应即作废，新提案可顶掉；持有人死亡时挂单立即清理。
 - **接受交易**：`accept_trade`，接受时复核：
   - 报价方仍存活。
+  - 挂单未过期。
   - 双方距离仍 ≤4。
   - 双方物品仍足够。
   - 任一不满足则取消挂单。

@@ -464,3 +464,20 @@ def test_starvation_death_clamps_hp_at_zero(monkeypatch):
     asyncio.run(eng.run_turn())
     assert not victim.alive
     assert victim.hp == 0
+
+
+# 死者手上的挂单要在回合末清掉，别留在 world.pending_trades 里没人认领
+def test_dead_agent_pending_trade_swept(monkeypatch):
+    eng = make_engine()
+    a, b = eng.agents
+    tr = {"id": "T1-0", "from": a.name, "to": b.name, "offer": "food",
+          "on": 1, "want": "ore", "wn": 1, "turn": 1}
+    eng.world.pending_trades.append(tr)
+    b.pending_trade = tr
+    b.alive = False
+    b.hp = 0
+    b.state = "死亡"
+    monkeypatch.setattr(engine_mod, "demo_decide", lambda x, y: ("wait", {}))
+    asyncio.run(eng.run_turn())
+    assert b.pending_trade is None
+    assert eng.world.pending_trades == []

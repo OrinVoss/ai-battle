@@ -456,3 +456,44 @@ def test_loot_unknown_target_message():
     assert "查无此人" in fb and logs == []
     fb, _ = tools.resolve_loot(a, w, {"target": "乙"}, Ctx())
     assert "还活着" in fb
+
+
+# ---------- 挂单时效：对方不回应的提案不能永久占死交易位 ----------
+
+def test_stale_trade_expires_and_frees_slot():
+    w, a, b = pair()
+    c = make_agent(w, "丙", (4, 2), 2)
+    w.agents = [a, b, c]
+    a.items = {"food": 3, "ore": 0}
+    c.items = {"food": 3, "ore": 0}
+    tools.resolve_propose_trade(a, w, {"target": "乙", "offer_item": "food", "offer_amount": 1,
+                                      "want_item": "ore", "want_amount": 1}, Ctx(turn=1))
+    first = b.pending_trade
+    assert first["turn"] == 1
+
+    # 还没到期：继续占坑，后来者提不上
+    fb, _ = tools.resolve_propose_trade(c, w, {"target": "乙", "offer_item": "food", "offer_amount": 2,
+                                               "want_item": "ore", "want_amount": 1},
+                                        Ctx(turn=1 + tools.TRADE_TTL - 1))
+    assert "正在处理其他交易" in fb and b.pending_trade is first
+
+    # 到期：旧挂单作废，新提案可以进来
+    fb, _ = tools.resolve_propose_trade(c, w, {"target": "乙", "offer_item": "food", "offer_amount": 2,
+                                               "want_item": "ore", "want_amount": 1},
+                                        Ctx(turn=1 + tools.TRADE_TTL))
+    assert "已向 乙 提出交易" in fb
+    assert b.pending_trade["from"] == "丙"
+    assert first not in w.pending_trades and len(w.pending_trades) == 1
+
+
+def test_expired_trade_cannot_be_accepted():
+    w, a, b = pair()
+    a.items = {"food": 3, "ore": 0}
+    b.items = {"food": 0, "ore": 2}
+    tools.resolve_propose_trade(a, w, {"target": "乙", "offer_item": "food", "offer_amount": 1,
+                                      "want_item": "ore", "want_amount": 1}, Ctx(turn=1))
+    tr = b.pending_trade
+    fb, _ = tools.resolve_accept_trade(b, w, {"trade_id": tr["id"]}, Ctx(turn=1 + tools.TRADE_TTL))
+    assert "过期" in fb
+    assert b.pending_trade is None and w.pending_trades == []
+    assert a.items == {"food": 3, "ore": 0} and b.items == {"food": 0, "ore": 2}

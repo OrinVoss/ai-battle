@@ -48,6 +48,25 @@ def _text(v):
     return "" if v is None else str(v).strip()
 
 
+TRADE_TTL = 10   # 挂单存活回合数：对方一直不回应就作废，别永久占坑
+
+
+def _trade_expired(tr, turn):
+    """挂单是否已过期（老挂单没有 turn 字段时按不处理，只对新建的生效）。"""
+    start = tr.get("turn")
+    return start is not None and turn - start >= TRADE_TTL
+
+
+def clear_pending_trade(agent, world):
+    """清掉某人手上的挂单（连同 world.pending_trades 里的那条）。"""
+    tr = getattr(agent, "pending_trade", None)
+    if not tr:
+        return
+    agent.pending_trade = None
+    if tr in world.pending_trades:
+        world.pending_trades.remove(tr)
+
+
 def _items_str(items, weapon=False):
     """物品字典转人类可读文本：食物x2 矿石x1（+武器）。"""
     parts = []
@@ -314,7 +333,9 @@ def resolve_propose_trade(a, w, args, ctx):
     if w.dist(a.pos, t.pos) > 4:
         return "对方太远，没法交易", []
     if t.pending_trade:
-        return "对方正在处理其他交易，稍后再试", []
+        if not _trade_expired(t.pending_trade, ctx.turn):
+            return "对方正在处理其他交易，稍后再试", []
+        clear_pending_trade(t, w)  # 对方一直没回应：作废旧挂单，别永久占坑
     offer = args.get("offer_item")
     want = args.get("want_item")
     try:
@@ -329,7 +350,8 @@ def resolve_propose_trade(a, w, args, ctx):
     if a.items.get(offer, 0) < on:
         return f"你没有那么多{offer}", []
     tid = f"T{ctx.turn}-{a.id}"
-    tr = {"id": tid, "from": a.name, "to": t.name, "offer": offer, "on": on, "want": want, "wn": wn}
+    tr = {"id": tid, "from": a.name, "to": t.name, "offer": offer, "on": on,
+          "want": want, "wn": wn, "turn": ctx.turn}   # turn 用于挂单过期判定
     w.pending_trades.append(tr)
     t.pending_trade = tr
     return f"已向 {t.name} 提出交易", [("trade", f"🤝 {a.name} 向 {t.name} 提出交易：{on}个{offer} 换 {wn}个{want}", {
@@ -347,6 +369,10 @@ def resolve_accept_trade(a, w, args, ctx):
         a.pending_trade = None
         if tr in w.pending_trades:
             w.pending_trades.remove(tr)
+
+    if _trade_expired(tr, ctx.turn):   # 放太久的提案作废，避免拿着旧价成交
+        cancel()
+        return "这笔交易已过期", []
 
     offerer = w.by_name(tr["from"])
     if not offerer or not offerer.alive:
@@ -380,9 +406,9 @@ def resolve_decline_trade(a, w, args, ctx):
     tr = a.pending_trade
     if not tr or tr["id"] != args.get("trade_id"):
         return "没有这笔交易", []
-    a.pending_trade = None
-    if tr in w.pending_trades:
-        w.pending_trades.remove(tr)
+    clear_pending_trade(a, w)
+    if _trade_expired(tr, ctx.turn):
+        return "这笔交易已过期", []
     return "你拒绝了交易", [("trade", f"❌ {a.name} 拒绝了 {tr['from']} 的交易", {
         "from": tr["from"], "to": a.name, "offer_item": tr["offer"], "offer_amount": tr["on"],
         "want_item": tr["want"], "want_amount": tr["wn"], "result": "declined"

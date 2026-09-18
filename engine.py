@@ -1108,6 +1108,12 @@ class Engine:
                 )
                 self._witness_death(a, "耗尽了生命")
 
+        # 死者的挂单顺手清掉：不管死于攻击、兽群还是耗尽生命，
+        # 它手上那条都会留在 world.pending_trades 里没人认领
+        for a in self.agents:
+            if not a.alive:
+                tools.clear_pending_trade(a, self.world)
+
         # 结束判定
         alive_now = [a for a in self.agents if a.alive]
         ended = False

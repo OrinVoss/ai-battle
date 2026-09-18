@@ -318,9 +318,13 @@ class Engine:
             for k in ("name", "provider", "model"):
                 if not str(c.get(k) or "").strip():
                     return f"选手缺少必要字段：{k}"
-            if c["name"] in names:
-                return f"选手名字重复：{c['name']}"
-            names.add(c["name"])
+            # 与 _clean_agents 同一套归一化（strip + 截 20 字符）后再比重名，
+            # 否则 "甲" 与 " 甲 "、第 21 字符起才不同的两个名字能过校验，
+            # 清洗后却撞成同一个名字
+            name = str(c["name"]).strip()[:20]
+            if name in names:
+                return f"选手名字重复：{name}"
+            names.add(name)
         return None
 
     # 难度参数的默认值与取值范围（键 -> (默认, 最小, 最大)）

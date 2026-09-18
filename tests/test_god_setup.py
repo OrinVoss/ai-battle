@@ -262,3 +262,20 @@ def test_energy_hp_drain_and_event_prob(monkeypatch):
     assert eng.agents[1].energy == 0
     assert eng.agents[1].hp == 93           # 100 - 7（自定义生命损耗）
     assert not any(h["kind"] == "event" for h in eng.history)  # event_prob=0 不触发事件
+
+
+# 重名判定必须用与 _clean_agents 相同的归一化（strip + 截 20 字符）
+def test_setup_duplicate_names_after_normalize():
+    eng = make_engine()
+    dup = [{"name": "甲", "provider": "x", "model": "m"},
+           {"name": " 甲 ", "provider": "x", "model": "m"}]
+    assert eng.apply_setup(dup) == "选手名字重复：甲"
+
+    long_a, long_b = "A" * 20, "A" * 21          # 截断到 20 字符后撞名
+    assert eng.apply_setup([{"name": long_a, "provider": "x", "model": "m"},
+                            {"name": long_b, "provider": "x", "model": "m"}]) == f"选手名字重复：{long_a}"
+
+    # 归一化后不撞名的正常配置仍能通过
+    assert eng.apply_setup([{"name": " 甲 ", "provider": "x", "model": "m"},
+                            {"name": " 乙 ", "provider": "x", "model": "m"}]) is None
+    assert [a.name for a in eng.agents] == ["甲", "乙"]

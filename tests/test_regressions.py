@@ -8,7 +8,8 @@ import engine as engine_mod
 from engine import Engine
 from agent import Agent
 from world import World
-from llm import ProviderError, build_client, _try_json, demo_decide
+from llm import (ProviderError, build_client, _try_json, _thinking_body,
+                 _cache_tokens, demo_decide)
 import tools
 
 
@@ -481,3 +482,62 @@ def test_dead_agent_pending_trade_swept(monkeypatch):
     asyncio.run(eng.run_turn())
     assert b.pending_trade is None
     assert eng.world.pending_trades == []
+
+
+# thinking / thinking_style 决定 extra_body 的字段格式，别把 DeepSeek 的字段名发给百炼
+def test_thinking_body_styles():
+    assert _thinking_body(None) is None
+    assert _thinking_body("enabled") == {"thinking": {"type": "enabled"}}
+    assert _thinking_body("disabled") == {"thinking": {"type": "disabled"}}
+    assert _thinking_body("enabled", "dashscope") == {"enable_thinking": True}
+    assert _thinking_body("disabled", "dashscope") == {"enable_thinking": False}
+
+
+def test_thinking_style_forwarded_to_llm_act(monkeypatch):
+    cfg = {
+        "world": {"width": 8, "height": 6, "seed": 5},
+        "providers": {"ds": {"name": "百炼", "base_url": "https://x", "api_key": "sk-1",
+                             "thinking": "enabled", "thinking_style": "dashscope"}},
+        "agents": [
+            {"name": "甲", "emoji": "🤖", "provider": "ds", "model": "m"},
+            {"name": "乙", "emoji": "🤖", "provider": "ds", "model": "m"},
+        ],
+    }
+    eng = Engine(cfg, FakeHub())
+    seen = {}
+
+    async def fake_act(client, model, messages, tools_arg, **kwargs):
+        seen.update(kwargs)
+        return "wait", {}, "想", None
+
+    monkeypatch.setattr(engine_mod, "llm_act", fake_act)
+    asyncio.run(eng.run_turn())
+    assert seen["thinking"] == "enabled"
+    assert seen["thinking_style"] == "dashscope"
+
+
+# 缓存 token 的字段各家不同：DeepSeek 直给，百炼藏在 prompt_tokens_details.cached_tokens
+class _Details:
+    def __init__(self, cached):
+        self.cached_tokens = cached
+
+
+class _Usage:
+    def __init__(self, **kw):
+        self.__dict__.update(kw)
+
+
+def test_cache_tokens_deepseek_fields_win():
+    u = _Usage(prompt_cache_hit_tokens=800, prompt_cache_miss_tokens=200,
+               prompt_tokens_details=_Details(999))  # 有 DeepSeek 字段就不看百炼的
+    assert _cache_tokens(u, 1000) == (800, 200)
+
+
+def test_cache_tokens_dashscope_details():
+    u = _Usage(prompt_tokens_details=_Details(640))
+    assert _cache_tokens(u, 1000) == (640, 360)  # 未命中数 = prompt - 命中
+
+
+def test_cache_tokens_absent_stays_none():
+    assert _cache_tokens(_Usage(), 1000) == (None, None)
+    assert _cache_tokens(_Usage(prompt_tokens_details=None), 1000) == (None, None)

@@ -66,12 +66,19 @@ v2 在 v1 的基础上把「生存沙盒」做成了可长期运行、可复盘�
 - 相关代码：`engine.py:432-454`。
 - 详细说明 → [usage.md#费用怎么估算](usage.md#费用怎么估算)、[config.md#price_input--price_output](config.md#price_input--price_output)
 
+### 多厂商思考开关
+
+- `thinking` + `thinking_style` 决定发给模型的 `extra_body`：DeepSeek 走 `{"thinking": {"type": ...}}`，阿里云百炼走 `{"enable_thinking": bool}`。
+- 内置 provider 增加 `dashscope`（阿里云百炼 OpenAI 兼容模式）。
+- 相关代码：`llm.py:87-99`、`engine.py:1022-1032`。
+- 详细说明 → [config.md#thinking](config.md#thinking)
+
 ### 缓存命中率
 
-- DeepSeek 返回真实缓存命中/未命中 token。
-- 其他 provider 不返回时，按相邻回合提示词公共前缀占比估算。
-- 相关代码：`llm.py:87-113`、`engine.py:1000-1023`。
-- 详细说明 → [technical.md#本地缓存命中率估算](technical.md#本地缓存命中率估算)
+- DeepSeek 返回真实缓存命中/未命中 token；阿里云百炼返回真实命中数（`prompt_tokens_details.cached_tokens`）。
+- 两者都不返回时（如硅基流动），按相邻回合提示词公共前缀占比估算。
+- 相关代码：`llm.py:87-135`、`engine.py:1000-1023`。
+- 详细说明 → [technical.md#缓存命中率统计](technical.md#缓存命中率统计)
 
 ---
 

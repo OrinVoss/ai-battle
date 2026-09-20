@@ -302,7 +302,7 @@ provider 下拉框联动 model 下拉框：切换 provider 时，model 列表会
 5. 名字改为「鸽子」。
 6. 角色改为「和平主义者」。
 7. provider 保持 `deepseek`（或你实际有 Key 的 provider）。
-8. model 选择 `deepseek-v4-flash`。
+8. model 选择 `deepseek-flash`。
 9. 攻击性滑块拖到 0.05，社交性 0.9，贪婪 0.1，多疑 0.2。
 10. 背景写：「从小被教育冲突没有赢家，只想让所有人活着。」
 11. 性格写：「温和、回避冲突、乐于助人。」
@@ -715,7 +715,7 @@ python main.py
 
 ### 6. 缓存命中率前面的 `~` 是什么意思？
 
-`~缓存 65%` 表示该 provider（如硅基流动）没有返回 `prompt_cache_hit_tokens`，命中率是按相邻回合提示词公共前缀占比估算的，不是实测值。DeepSeek 返回实测值时不显示 `~`。
+`~缓存 65%` 表示该 provider（如硅基流动）没有返回缓存命中字段，命中率是按相邻回合提示词公共前缀占比估算的，不是实测值。DeepSeek（`prompt_cache_hit_tokens`）和阿里云百炼（`prompt_tokens_details.cached_tokens`）返回实测值时不显示 `~`。
 
 ### 7. 回放文件可以手动删除吗？
 

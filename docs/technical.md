@@ -414,6 +414,9 @@ FF你.~
 - `completion_tokens`
 - `prompt_cache_hit_tokens`（DeepSeek 特有）
 - `prompt_cache_miss_tokens`（DeepSeek 特有）
+- `prompt_tokens_details.cached_tokens`（阿里云百炼特有，只给命中数）
+
+提取逻辑集中在 `_cache_tokens()`（`llm.py:87-101`）：先看 DeepSeek 字段，取不到再退到百炼的 `cached_tokens`，并用 `prompt_tokens - cached_tokens` 补出未命中数。两边都取不到才返回 `None`，交给下面的估算分支。
 
 ### 本地缓存命中率估算
 
@@ -593,9 +596,9 @@ const KIND_FILTER = {
 
 ```json
 {
-  "陈默|deepseek-v4-flash": {
+  "陈默|deepseek-flash": {
     "name": "陈默",
-    "model": "deepseek-v4-flash",
+    "model": "deepseek-flash",
     "games": 1,
     "wins": 1,
     "kills": 0,

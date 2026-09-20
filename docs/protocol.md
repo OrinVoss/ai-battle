@@ -78,7 +78,7 @@
       "emoji": "🤖",
       "role": "幸存者",
       "provider": "deepseek",
-      "model": "deepseek-v4-flash",
+      "model": "deepseek-flash",
       "backstory": "",
       "personality": "",
       "strategy": "",
@@ -185,7 +185,7 @@
   "providers": {
     "deepseek": {
       "name": "DeepSeek",
-      "models": ["deepseek-v4-flash", "deepseek-chat", "deepseek-reasoner"]
+      "models": ["deepseek-flash", "deepseek-v4-pro"]
     },
     "siliconflow": {
       "name": "硅基流动",
@@ -199,7 +199,7 @@
       "emoji": "🕸️",
       "role": "被害妄想症患者",
       "provider": "deepseek",
-      "model": "deepseek-v4-flash",
+      "model": "deepseek-flash",
       "alive": true,
       "state": "存活",
       "hp": 67,
@@ -488,7 +488,7 @@ Content-Type: application/json
       "emoji": "🕸️",
       "role": "被害妄想症患者",
       "provider": "deepseek",
-      "model": "deepseek-v4-flash",
+      "model": "deepseek-flash",
       "backstory": "...",
       "personality": "...",
       "strategy": "...",
@@ -543,7 +543,7 @@ GET /api/setup HTTP/1.1
       "emoji": "🕸️",
       "role": "被害妄想症患者",
       "provider": "deepseek",
-      "model": "deepseek-v4-flash",
+      "model": "deepseek-flash",
       "backstory": "...",
       "personality": "...",
       "strategy": "...",
@@ -551,7 +551,7 @@ GET /api/setup HTTP/1.1
     }
   ],
   "providers": {
-    "deepseek": { "name": "DeepSeek", "models": ["deepseek-v4-flash", "deepseek-chat", "deepseek-reasoner"] },
+    "deepseek": { "name": "DeepSeek", "models": ["deepseek-flash", "deepseek-v4-pro"] },
     "siliconflow": { "name": "硅基流动", "models": ["Qwen/Qwen3.5-35B-A3B"] }
   },
   "world": {
@@ -581,18 +581,18 @@ GET /api/stats HTTP/1.1
 
 ```json
 {
-  "陈默|deepseek-v4-flash": {
+  "陈默|deepseek-flash": {
     "name": "陈默",
-    "model": "deepseek-v4-flash",
+    "model": "deepseek-flash",
     "games": 5,
     "wins": 1,
     "kills": 3,
     "elo": 1012,
     "titles": {"生存冠军": 1, "外交家": 2}
   },
-  "屠夫|deepseek-v4-flash": {
+  "屠夫|deepseek-flash": {
     "name": "屠夫",
-    "model": "deepseek-v4-flash",
+    "model": "deepseek-flash",
     "games": 5,
     "wins": 2,
     "kills": 7,
@@ -670,7 +670,7 @@ Content-Type: text/plain; charset=utf-8
 {
   "type": "meta",
   "config_agents": [
-    { "name": "陈默", "emoji": "🕸️", "role": "被害妄想症患者", "provider": "deepseek", "model": "deepseek-v4-flash" },
+    { "name": "陈默", "emoji": "🕸️", "role": "被害妄想症患者", "provider": "deepseek", "model": "deepseek-flash" },
     { "name": "白夜", "emoji": "🎭", "role": "病理性说谎者", "provider": "siliconflow", "model": "Qwen/Qwen3.5-35B-A3B" }
   ]
 }
@@ -709,9 +709,9 @@ Content-Type: text/plain; charset=utf-8
 
 ```json
 {
-  "陈默|deepseek-v4-flash": {
+  "陈默|deepseek-flash": {
     "name": "陈默",
-    "model": "deepseek-v4-flash",
+    "model": "deepseek-flash",
     "games": 5,
     "wins": 1,
     "kills": 3,

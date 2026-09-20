@@ -135,7 +135,7 @@
   "thinking": "disabled",
   "price_input": 2,
   "price_output": 8,
-  "models": ["deepseek-v4-flash", "deepseek-chat", "deepseek-reasoner"]
+  "models": ["deepseek-flash", "deepseek-v4-pro"]
 }
 ```
 
@@ -145,7 +145,8 @@
 | `base_url` | string | 是 | OpenAI 兼容接口地址（`llm.py:50-52`） |
 | `api_key` | string | 否 | 直接写 key；为空时尝试读 `env_key` 环境变量（`llm.py:39-52`） |
 | `env_key` | string | 否 | 环境变量名（`llm.py:43-44`） |
-| `thinking` | string | 否 | `"enabled"` / `"disabled"`，控制 DeepSeek 思考模式（`llm.py:101-102`） |
+| `thinking` | string | 否 | `"enabled"` / `"disabled"`，控制模型思考模式（`llm.py:87-115`） |
+| `thinking_style` | string | 否 | 思考开关的字段格式，默认 `"deepseek"`；阿里云百炼填 `"dashscope"`（`llm.py:87-99`） |
 | `price_input` | float | 否 | 每百万 prompt token 单价（元），用于费用估算（`engine.py:440`） |
 | `price_output` | float | 否 | 每百万 completion token 单价（元）（`engine.py:440`） |
 | `models` | string[] | 否 | 该 provider 提供的模型列表，供前端下拉框使用（`main.py:155`） |
@@ -159,7 +160,7 @@
 ```json
 "commentator": {
   "provider": "deepseek",
-  "model": "deepseek-v4-flash"
+  "model": "deepseek-flash"
 }
 ```
 
@@ -188,10 +189,22 @@
 
 #### `thinking`
 
-- 仅对 DeepSeek 生效。
+- 各家的思考开关字段不同，由 `thinking_style` 决定用哪种格式（`llm.py:87-99`）：
+
+| `thinking_style` | 形状 | 适用 |
+|---|---|---|
+| 缺省 / `"deepseek"` | `{"thinking": {"type": "enabled"\|"disabled"}}` | DeepSeek |
+| `"dashscope"` | `{"enable_thinking": true\|false}` | 阿里云百炼（DashScope 兼容模式） |
+
 - `"enabled"`：模型输出思维链，更慢更费 token，`temperature` 会被忽略。
 - `"disabled"`：关闭思考模式，正常输出。
-- 不配时，`llm_act` 不设置 `extra_body`。
+- 不配时，`llm_act` / `llm_chat` 不设置 `extra_body`（模型走自己的默认值——百炼的思考模型默认是开着的）。
+
+#### `thinking_style`
+
+- 只在配了 `thinking` 时起作用。
+- 接入非 DeepSeek 的思考模型时必填，否则会把 DeepSeek 的字段名发给对方。
+- 目前支持 `"deepseek"`（默认）与 `"dashscope"` 两种。
 
 #### `price_input` / `price_output`
 
@@ -211,6 +224,21 @@
 | `deepseek` | `https://api.deepseek.com` | `DEEPSEEK_API_KEY` |
 | `siliconflow` | `https://api.siliconflow.cn/v1` | `SILICONFLOW_API_KEY` |
 | `openrouter` | `https://openrouter.ai/api/v1` | `OPENROUTER_API_KEY` |
+| `dashscope` | `https://dashscope.aliyuncs.com/compatible-mode/v1` | `DASHSCOPE_API_KEY` |
+
+百炼这一节带思考开关，可直接照抄：
+
+```json
+"dashscope": {
+  "name": "阿里云百炼",
+  "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+  "api_key": "",
+  "env_key": "DASHSCOPE_API_KEY",
+  "thinking": "disabled",
+  "thinking_style": "dashscope",
+  "models": ["qwen3.7-flash"]
+}
+```
 
 ### 添加一个新 provider：完整步骤示例
 
@@ -261,7 +289,7 @@ set EXAMPLE_API_KEY=sk-your-key-here
   "emoji": "🕸️",
   "role": "被害妄想症患者",
   "provider": "deepseek",
-  "model": "deepseek-v4-flash",
+  "model": "deepseek-flash",
   "backstory": "曾经被人背叛到一无所有...",
   "personality": "极度多疑、神经质...",
   "strategy": "时刻记录每个人的'可疑行径'...",
@@ -325,7 +353,7 @@ set EXAMPLE_API_KEY=sk-your-key-here
   "emoji": "🕊️",
   "role": "和平主义者",
   "provider": "deepseek",
-  "model": "deepseek-v4-flash",
+  "model": "deepseek-flash",
   "backstory": "从小被教育冲突没有赢家，只想让所有人活着。",
   "personality": "温和、回避冲突、乐于助人。",
   "strategy": "优先寻找食物矿脉，遇到人就提出交易，绝不主动攻击。",
@@ -348,7 +376,7 @@ set EXAMPLE_API_KEY=sk-your-key-here
   "emoji": "🐺",
   "role": "掠夺者",
   "provider": "deepseek",
-  "model": "deepseek-v4-flash",
+  "model": "deepseek-flash",
   "backstory": "弱肉强食是唯一法则，资源要靠抢。",
   "personality": "冷酷、果断、不信任任何人。",
   "strategy": "寻找最近的对手，靠近后发动攻击；只在必要时休息和进食。",
@@ -372,7 +400,7 @@ set EXAMPLE_API_KEY=sk-your-key-here
 推荐做法（优先级从高到低）：
 
 1. **`.env` 文件**：复制 `.env.example` 为 `.env` 填入 Key。启动时 `llm.py` 自动加载（零依赖实现，不覆盖已存在的环境变量），`.env` 已在 `.gitignore` 中。
-2. **系统环境变量**：`DEEPSEEK_API_KEY` / `SILICONFLOW_API_KEY` / `OPENROUTER_API_KEY`。
+2. **系统环境变量**：`DEEPSEEK_API_KEY` / `SILICONFLOW_API_KEY` / `OPENROUTER_API_KEY` / `DASHSCOPE_API_KEY`。
 3. **`config.json` 明文**：复制 `config.example.json` 为 `config.json` 后在 `api_key` 字段填写——`config.json` 也在 `.gitignore` 中，但注意别手动分享这个文件。
 
 ### Key 读取顺序

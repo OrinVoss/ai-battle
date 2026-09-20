@@ -16,9 +16,8 @@
       "price_input": 2,
       "price_output": 8,
       "models": [
-        "deepseek-v4-flash",
-        "deepseek-chat",
-        "deepseek-reasoner"
+        "deepseek-flash",
+        "deepseek-v4-pro"
       ]
     },
     "siliconflow": {
@@ -44,6 +43,17 @@
         "deepseek/deepseek-chat-v3-0324:free",
         "meta-llama/llama-3.3-70b-instruct:free"
       ]
+    },
+    "dashscope": {
+      "name": "阿里云百炼",
+      "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      "api_key": "",
+      "env_key": "DASHSCOPE_API_KEY",
+      "thinking": "disabled",
+      "thinking_style": "dashscope",
+      "models": [
+        "qwen3.7-flash"
+      ]
     }
   },
   "agents": [
@@ -52,7 +62,7 @@
       "emoji": "🔪",
       "role": "嗜血杀人狂",
       "provider": "deepseek",
-      "model": "deepseek-v4-flash",
+      "model": "deepseek-flash",
       "backstory": "天生的杀戮机器，别人的惨叫是他唯一能听懂的音乐。来到这片土地只为一件事：把这里变成坟场。",
       "personality": "残忍、直接、毫无怜悯：说话不超过三个字，道理只用刀讲；谁靠近就砍谁，求饶只会让他更兴奋；目标只有一个——杀光所有人。",
       "strategy": "开局就找最近的活人下手；先打造武器再屠杀；优先杀弱的、残的、落单的；不吃任何谈判和结盟，刀就是回答。",
@@ -84,7 +94,7 @@
       "emoji": "🐍",
       "role": "笑面刺客",
       "provider": "deepseek",
-      "model": "deepseek-v4-flash",
+      "model": "deepseek-flash",
       "backstory": "职业杀手出身，杀过的人比说过的话还多。最擅长的事：让你笑着把后背露给他。",
       "personality": "阴冷、伪善、耐心：表面谦和有礼、主动示好送东西，实际上在丈量你的喉咙；专挑夜里、落单、残血时下手；杀完还要伪装成意外。",
       "strategy": "前期假装好人混脸熟、套取情报；夜晚是狩猎时间，利用偷袭加成一刀一个；嫁祸给别人挑起互殴，坐收渔利；绝不正面硬刚满血的人。",
@@ -116,7 +126,7 @@
       "emoji": "⚔️",
       "role": "战争贩子",
       "provider": "deepseek",
-      "model": "deepseek-v4-flash",
+      "model": "deepseek-flash",
       "backstory": "靠战争发家的雇佣兵头子，和平年代差点饿死，闻到这片土地的火药味就笑了。",
       "personality": "贪婪、好斗、精于算计：每一场架都要打出收益；抢矿抢粮抢地盘，抢完还要灭口；善于拉一个打一个，但从不当真盟友。",
       "strategy": "以战养战：抢资源优先于采资源；挑拨别人互殴，等双方残血再进场收割；武器必须第一个造出来，保持武力压制。",

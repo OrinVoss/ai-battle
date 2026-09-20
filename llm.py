@@ -84,11 +84,42 @@ def _trim_think(s, limit=160):
     return "…" + s[-limit:]
 
 
-async def llm_act(client, model, messages, tools, temperature=0.9, max_tokens=900, thinking=None):
+def _thinking_body(thinking, style=None):
+    """把 provider 配置里的 thinking 开关翻译成对应厂商的 extra_body；None=不设置。
+
+    各家的字段名不一样：DeepSeek 用 {"thinking": {"type": "enabled"/"disabled"}}，
+    阿里云百炼（DashScope 兼容模式）用 {"enable_thinking": bool}。
+    """
+    if thinking is None:
+        return None
+    if style == "dashscope":
+        return {"enable_thinking": str(thinking).strip().lower() == "enabled"}
+    return {"thinking": {"type": thinking}}
+
+
+def _cache_tokens(u, prompt):
+    """提取缓存命中/未命中 token，取不到返回 (None, None) 由调用方估算。
+
+    各家字段不同：DeepSeek 直接给 prompt_cache_hit_tokens / prompt_cache_miss_tokens；
+    阿里云百炼给 prompt_tokens_details.cached_tokens（只给命中数，未命中数自己减）。
+    """
+    hit = getattr(u, "prompt_cache_hit_tokens", None)
+    miss = getattr(u, "prompt_cache_miss_tokens", None)
+    if hit is None:
+        cached = getattr(getattr(u, "prompt_tokens_details", None), "cached_tokens", None)
+        if cached is not None:
+            hit = cached
+            miss = max(0, (prompt or 0) - cached)
+    return hit, miss
+
+
+async def llm_act(client, model, messages, tools, temperature=0.9, max_tokens=900,
+                  thinking=None, thinking_style=None):
     """调用模型，返回 (action_name, args_dict, thinking, usage)。
 
     usage 为 {"prompt": int, "completion": int}，取不到时为 None。
-    thinking: None=不设置；"enabled"/"disabled"=通过 extra_body 控制 DeepSeek 思考模式。
+    thinking: None=不设置；"enabled"/"disabled"=通过 extra_body 控制思考模式。
+    thinking_style: 控制 extra_body 的字段格式（见 _thinking_body），默认 DeepSeek 格式。
     """
     kwargs = dict(
         model=model,
@@ -98,18 +129,20 @@ async def llm_act(client, model, messages, tools, temperature=0.9, max_tokens=90
         temperature=temperature,
         max_tokens=max_tokens,
     )
-    if thinking is not None:
-        kwargs["extra_body"] = {"thinking": {"type": thinking}}
+    extra = _thinking_body(thinking, thinking_style)
+    if extra is not None:
+        kwargs["extra_body"] = extra
     resp = await client.chat.completions.create(**kwargs)
     usage = None
     u = getattr(resp, "usage", None)
     if u is not None:
+        prompt = getattr(u, "prompt_tokens", 0) or 0
+        cache_hit, cache_miss = _cache_tokens(u, prompt)
         usage = {
-            "prompt": getattr(u, "prompt_tokens", 0) or 0,
+            "prompt": prompt,
             "completion": getattr(u, "completion_tokens", 0) or 0,
-            # DeepSeek 硬盘缓存命中/未命中 token；provider 未返回时保持 None（由调用方估算）
-            "cache_hit": getattr(u, "prompt_cache_hit_tokens", None),
-            "cache_miss": getattr(u, "prompt_cache_miss_tokens", None),
+            "cache_hit": cache_hit,
+            "cache_miss": cache_miss,
         }
     msg = resp.choices[0].message
     content = (getattr(msg, "content", None) or "").strip()
@@ -141,14 +174,17 @@ async def llm_act(client, model, messages, tools, temperature=0.9, max_tokens=90
     return None, {}, _trim_think(content or reasoning), usage
 
 
-async def llm_chat(client, model, messages, temperature=0.9, max_tokens=200, thinking=None):
+async def llm_chat(client, model, messages, temperature=0.9, max_tokens=200,
+                   thinking=None, thinking_style=None):
     """通用聊天调用，返回 (content_text, usage)。
 
     用于解说员、反思等非工具场景。调用失败直接抛出异常，由调用方决定是否静默。
+    thinking_style 含义同 llm_act。
     """
     kwargs = dict(model=model, messages=messages, temperature=temperature, max_tokens=max_tokens)
-    if thinking is not None:
-        kwargs["extra_body"] = {"thinking": {"type": thinking}}
+    extra = _thinking_body(thinking, thinking_style)
+    if extra is not None:
+        kwargs["extra_body"] = extra
     resp = await client.chat.completions.create(**kwargs)
     usage = None
     u = getattr(resp, "usage", None)

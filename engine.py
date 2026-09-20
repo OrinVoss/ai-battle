@@ -1021,13 +1021,15 @@ class Engine:
             common = os.path.commonprefix([prompt_text, prev_prompt])
             prov = self.config["providers"].get(a.provider, {})
             # 每个 provider 可在 config.json 里配 "thinking": "enabled/disabled"
+            # 以及 "thinking_style"（默认 DeepSeek 格式；"dashscope" 走 enable_thinking）
             thinking_mode = prov.get("thinking")
+            thinking_style = prov.get("thinking_style")
             # 失败隔 2 秒重试 1 次；仍失败则本回合降级为托管 AI（演示规则）代打
             for attempt in (0, 1):
                 try:
                     act, args, thinking, usage = await llm_act(
                         self.clients[a.name], a.model, msgs, tools.TOOL_SCHEMAS,
-                        thinking=thinking_mode,
+                        thinking=thinking_mode, thinking_style=thinking_style,
                     )
                     if usage:
                         a.usage["prompt"] += usage["prompt"]

@@ -779,6 +779,15 @@ class Engine:
             v = 5
         return max(0, v)
 
+    def _prov_thinking(self, provider_key):
+        """取 provider 的思考模式配置，传给 llm_chat 的 thinking/thinking_style。
+
+        不设的话推理模型（如 deepseek-flash 默认开思考）会把 max_tokens 全耗在
+        思维链上、正文为空，解说/复盘/反思会静默丢失。
+        """
+        prov = self.config["providers"].get(provider_key, {})
+        return prov.get("thinking"), prov.get("thinking_style")
+
     def _commentary_log_texts(self):
         """从最近日志中挑选公开事件，战斗/死亡/交易/结盟/上帝/事件优先，约 20 条。"""
         priority = {"fight": 4, "death": 4, "trade": 3, "sys": 2, "god": 2, "event": 2}
@@ -818,10 +827,12 @@ class Engine:
                 "只输出解说文本，不要 JSON、不要动作名。"
             )
             user = "最近发生的公开事件：\n" + ("\n".join(logs) if logs else "（暂无大事）")
+            t_mode, t_style = self._prov_thinking(self._commentary_provider_name)
             text, _usage = await llm_chat(
                 self._commentary_client, self._commentary_model,
                 [{"role": "system", "content": system}, {"role": "user", "content": user}],
                 temperature=0.9, max_tokens=200,
+                thinking=t_mode, thinking_style=t_style,
             )
             if text:
                 self.emit("commentary", f"📣 解说：{text}")
@@ -886,6 +897,7 @@ class Engine:
         try:
             if self._commentary_client is not None and self._commentary_model:
                 system, user = self._match_review_prompt()
+                t_mode, t_style = self._prov_thinking(self._commentary_provider_name)
                 text, _usage = await llm_chat(
                     self._commentary_client,
                     self._commentary_model,
@@ -895,6 +907,7 @@ class Engine:
                     ],
                     temperature=0.8,
                     max_tokens=400,
+                    thinking=t_mode, thinking_style=t_style,
                 )
             else:
                 text = self._demo_match_review()
@@ -946,10 +959,12 @@ class Engine:
                     f"食物 {a.items['food']}，矿石 {a.items['ore']}，"
                     f"武器{'有' if a.weapon else '无'}"
                 )
+                t_mode, t_style = self._prov_thinking(a.provider)
                 text, usage = await llm_chat(
                     self.clients[a.name], a.model,
                     [{"role": "system", "content": system}, {"role": "user", "content": user}],
                     temperature=0.8, max_tokens=120,
+                    thinking=t_mode, thinking_style=t_style,
                 )
                 if usage:
                     # 反思用的是这名选手自己的 client/model，token 与费用算他的

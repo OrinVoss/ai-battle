@@ -136,3 +136,24 @@ def test_commentary_uses_config_commentator(monkeypatch):
     run(eng)
     assert len(calls) == 1
     assert calls[0] == "special-model"
+
+
+def test_commentary_passes_provider_thinking(monkeypatch):
+    """解说/复盘走的是 commentator 自己的 provider 配置，思考开关必须带上，
+    否则 deepseek-flash 默认开思考会把 max_tokens 耗光、正文为空、解说静默丢失。"""
+    seen = {}
+
+    async def fake_chat(client, model, messages, **kwargs):
+        seen.update(kwargs)
+        return "解说", None
+
+    monkeypatch.setattr(engine_mod, "llm_act", fake_llm_act)
+    monkeypatch.setattr(engine_mod, "llm_chat", fake_chat)
+    eng = make_engine(
+        providers={"x": {"name": "X", "base_url": "https://x", "api_key": "sk-x",
+                         "models": ["m"], "thinking": "disabled", "thinking_style": "dashscope"}},
+        world_extra={"commentary_interval": 1},
+    )
+    run(eng)
+    assert seen.get("thinking") == "disabled"
+    assert seen.get("thinking_style") == "dashscope"
